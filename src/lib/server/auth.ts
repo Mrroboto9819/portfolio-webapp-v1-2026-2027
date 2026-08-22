@@ -4,16 +4,56 @@
 // username, same argon2 password hash — so the credentials that already work
 // keep working. Nothing about the stored user is rewritten on login.
 //
-// The session is a signed JWT in an httpOnly, SameSite=Lax cookie. The signing
-// key is JWT_ACCESS_SECRET, injected from the environment at run time.
+// Sessions are a two-token pair, both httpOnly + SameSite=Lax cookies:
+//
+//   admin_access   short-lived signed JWT (default 5 min). Stateless: checked
+//                  by signature alone, so the common request costs no DB round
+//                  trip. Not revocable, which is exactly why it is short.
+//   admin_refresh  opaque random token, rotated on every use, backed by a row
+//                  in `sessions`. This is the revocable half, and it carries
+//                  the absolute session lifetime.
+//
+// A stolen access token is therefore useful for minutes rather than hours, and
+// a stolen refresh token is detected the moment the real client rotates next —
+// see consumeRefreshToken. Signing key is JWT_ACCESS_SECRET, injected at run
+// time; lifetimes come from JWT_ACCESS_TTL_SECONDS / JWT_REFRESH_TTL_SECONDS.
 
 import { SignJWT, jwtVerify } from 'jose';
 import { verify as argonVerify } from '@node-rs/argon2';
 import { env } from '$env/dynamic/private';
 import { getDb } from './db';
 
-export const SESSION_COOKIE = 'admin_session';
-const SESSION_TTL_SECONDS = 60 * 60 * 8; // 8h
+export const SESSION_COOKIE = 'admin_access';
+export const REFRESH_COOKIE = 'admin_refresh';
+
+/**
+ * The refresh cookie is confined to the admin area.
+ *
+ * The browser only attaches a cookie to requests whose path matches, so this
+ * one is never sent with a request for the public site, an image, or a public
+ * /api/v1 read — the places it could leak from (a proxy log, a referrer, a
+ * third-party asset) but could never be used. The admin UI performs every
+ * write through a SvelteKit form action under /admin, so nothing legitimate
+ * needs it anywhere else.
+ *
+ * Deletions must repeat this exact path: a cookie is identified by name AND
+ * path, so clearing it with path '/' silently leaves this one in place.
+ */
+export const REFRESH_PATH = '/admin';
+
+/** Read a positive integer from the environment, falling back when unset or junk. */
+function ttl(name: string, fallback: number): number {
+	const n = Number(env[name]);
+	return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+/** How long an access token is accepted. Short on purpose. */
+export const accessTtl = () => ttl('JWT_ACCESS_TTL_SECONDS', 300); // 5 min
+/**
+ * Absolute session lifetime. Rotation does not extend it, so this is the point
+ * at which the user is signed out no matter how recently they were active.
+ */
+export const refreshTtl = () => ttl('JWT_REFRESH_TTL_SECONDS', 60 * 60 * 8); // 8h
 
 export type AdminSession = { sub: string; username: string; role: string };
 
@@ -65,7 +105,7 @@ export async function createSessionToken(session: AdminSession): Promise<string>
 		.setProtectedHeader({ alg: 'HS256' })
 		.setSubject(session.sub)
 		.setIssuedAt()
-		.setExpirationTime(`${SESSION_TTL_SECONDS}s`)
+		.setExpirationTime(`${accessTtl()}s`)
 		.sign(key());
 }
 
@@ -84,10 +124,22 @@ export async function readSessionToken(token: string | undefined): Promise<Admin
 	}
 }
 
-export const sessionCookieOptions = {
-	path: '/',
+const baseCookie = {
+	// httpOnly on both: document.cookie cannot read either token, so an XSS
+	// payload cannot exfiltrate the session even while it runs on the page.
 	httpOnly: true,
 	sameSite: 'lax' as const,
-	secure: true,
-	maxAge: SESSION_TTL_SECONDS
+	// Dev runs over plain http on localhost, where a Secure cookie is silently
+	// dropped and the login appears to succeed while never sticking.
+	secure: process.env.NODE_ENV !== 'development'
 };
+
+/** Cookie for the access token. Expires with the token it carries. */
+export const sessionCookieOptions = () => ({ ...baseCookie, path: '/', maxAge: accessTtl() });
+
+/** Cookie for the refresh token — see REFRESH_PATH for why it is scoped. */
+export const refreshCookieOptions = () => ({
+	...baseCookie,
+	path: REFRESH_PATH,
+	maxAge: refreshTtl()
+});

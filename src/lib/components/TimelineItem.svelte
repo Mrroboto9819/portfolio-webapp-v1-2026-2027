@@ -2,7 +2,9 @@
 	import HudPanel from './HudPanel.svelte';
 	import type { Company } from '$lib/types';
 
-	let { job, tag, logo }: { job: Company; tag: string; logo?: string } = $props();
+	// `tag` is null for every role except the current one — the badge and its
+	// gap are dropped entirely rather than rendered empty.
+	let { job, tag, logo }: { job: Company; tag?: string | null; logo?: string } = $props();
 </script>
 
 <div class="relative">
@@ -14,12 +16,14 @@
 	<HudPanel class="game-hover p-6 md:p-7">
 		<div class="flex flex-wrap items-start justify-between gap-4">
 			<div class="flex items-center gap-4">
-				<span
-					class="border border-secondary/30 bg-secondary/10 px-2.5 py-1 font-mono text-xs tracking-[0.1em] text-secondary uppercase"
-					style="box-shadow: 0 0 4px rgba(255,171,243,0.3)"
-				>
-					{tag}
-				</span>
+				{#if tag}
+					<span
+						class="border border-secondary/30 bg-secondary/10 px-2.5 py-1 font-mono text-xs tracking-[0.1em] text-secondary uppercase"
+						style="box-shadow: 0 0 4px rgba(255,171,243,0.3)"
+					>
+						{tag}
+					</span>
+				{/if}
 				<h3 class="m-0 text-lg font-bold tracking-[-0.02em] text-on-surface md:text-2xl">
 					{job.role}
 				</h3>

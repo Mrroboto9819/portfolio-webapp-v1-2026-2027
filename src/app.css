@@ -79,6 +79,23 @@
 @layer base {
 	html {
 		scroll-behavior: smooth;
+
+		/* `clip`, not `hidden`, and on the root rather than on <body>.
+		 *
+		 * The entrance animations start elements slightly outside their final
+		 * box — the hero panel begins at translateX(24px) — which put its right
+		 * edge 8px past the viewport and made every phone able to scroll the
+		 * page sideways during load.
+		 *
+		 * `overflow-x: hidden` on <body> alone did NOT stop that: it only makes
+		 * <body> a scroll container, and it has a nasty side effect — a box with
+		 * one axis hidden computes the other axis to `auto`, so <body> gained
+		 * overflow-y: auto and any `position: sticky` inside it stops sticking.
+		 *
+		 * `clip` clips the overflow WITHOUT creating a scroll container, so the
+		 * sideways scroll goes away and sticky keeps working. */
+		overflow-x: hidden; /* fallback for Safari < 16 */
+		overflow-x: clip;
 	}
 
 	body {
@@ -86,7 +103,6 @@
 		background: var(--color-surface);
 		color: var(--color-on-surface);
 		font-family: var(--font-sans);
-		overflow-x: hidden;
 		-webkit-font-smoothing: antialiased;
 	}
 

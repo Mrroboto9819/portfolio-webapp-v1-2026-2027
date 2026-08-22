@@ -4,7 +4,15 @@ import type { AdminSession } from '$lib/server/auth';
 declare global {
 	namespace App {
 		interface Locals {
+			/** Resolved admin identity for this request, or null when signed out. */
 			session: AdminSession | null;
+			/**
+			 * Absolute end of the signed-in session — the moment refreshing stops
+			 * working and the user is signed out regardless of activity. Present
+			 * only when `session` is, and only once a refresh has been redeemed
+			 * this request (the access token alone does not carry it).
+			 */
+			sessionExpiresAt: Date | null;
 		}
 		// interface Error {}
 		// interface PageData {}

@@ -136,7 +136,22 @@ export function heroIntro(root: HTMLElement) {
 	const q = gsap.utils.selector(root);
 	const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
 
-	tl.from(q('[data-hero="status"]'), { opacity: 0, x: -16, duration: 0.5 })
+	// On phones the entrance slides along Y, not X.
+	//
+	// `gsap.from` starts the element at the offset and animates to zero, so an
+	// x-offset places it outside its own box for the length of the tween. At
+	// 375px the panel's 24px start offset put its right edge 8px beyond the
+	// viewport, which is enough for mobile Safari to let the page pan sideways
+	// — `overflow-x` on the root suppresses the scrollbar but is not something
+	// to rely on for touch panning. Sliding vertically overflows nothing,
+	// because the page already scrolls on that axis.
+	//
+	// Desktop keeps the horizontal slide: there the panel sits in a 12-column
+	// grid with room to spare, so 24px never reaches the viewport edge.
+	const slideOnX = !window.matchMedia('(max-width: 767px)').matches;
+	const enter = (x: number, y = x) => (slideOnX ? { x } : { y });
+
+	tl.from(q('[data-hero="status"]'), { opacity: 0, ...enter(-16), duration: 0.5 })
 		.from(q('[data-hero="title"]'), { opacity: 0, y: 28, duration: 0.7 }, '-=0.25')
 		.from(q('[data-hero="copy"]'), { opacity: 0, y: 18, duration: 0.6 }, '-=0.4')
 		.from(q('[data-hero="cta"] > *'), { opacity: 0, y: 14, duration: 0.45, stagger: 0.1 }, '-=0.35')
@@ -145,8 +160,12 @@ export function heroIntro(root: HTMLElement) {
 			{ opacity: 0, y: 10, duration: 0.4, stagger: 0.07 },
 			'-=0.3'
 		)
-		.from(q('[data-hero="panel"]'), { opacity: 0, x: 24, duration: 0.7 }, '-=0.9')
-		.from(q('[data-hero="row"]'), { opacity: 0, x: 12, duration: 0.35, stagger: 0.05 }, '-=0.4');
+		.from(q('[data-hero="panel"]'), { opacity: 0, ...enter(24), duration: 0.7 }, '-=0.9')
+		.from(
+			q('[data-hero="row"]'),
+			{ opacity: 0, ...enter(12), duration: 0.35, stagger: 0.05 },
+			'-=0.4'
+		);
 
 	return tl;
 }

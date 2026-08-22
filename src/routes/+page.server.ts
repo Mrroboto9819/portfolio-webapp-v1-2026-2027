@@ -22,9 +22,15 @@ const SKILL_GROUPS: { name: string; accent: string; members: string[] }[] = [
 	{ name: 'DATA & INFRA', accent: '#a1f21d', members: ['MONGODB', 'MYSQL', 'DOCKER'] }
 ];
 
-// Seniority chips are presentational — the collection stores no seniority.
-// Index 0 is the current role because `order` sorts most-recent-first.
-const SENIORITY = ['CURRENT', 'SENIOR', 'JUNIOR'];
+// Only the current role is badged.
+//
+// This used to hand out ['CURRENT', 'SENIOR', 'JUNIOR'] by array position, but
+// the collection stores no seniority, so those labels were asserting a career
+// history from nothing more than list order — the third job was captioned
+// JUNIOR because it happened to be third. `order` does sort most-recent-first,
+// so index 0 genuinely is the current role; that is the one fact available
+// here, and it is the only one stated.
+const CURRENT_BADGE = 'CURRENT';
 
 // First professional role (I20VEINTE, Nov 2021). Periods are free-text strings
 // in Mongo, so parsing them is fragile; this constant is the single source for
@@ -93,7 +99,7 @@ export const load: PageServerLoad = async () => {
 		projects: projectList,
 		companies: companyList.map((c, i) => ({
 			...c,
-			seniority: SENIORITY[i] ?? 'ENGINEER'
+			seniority: i === 0 ? CURRENT_BADGE : null
 		})),
 		social: socialList,
 		degrees,

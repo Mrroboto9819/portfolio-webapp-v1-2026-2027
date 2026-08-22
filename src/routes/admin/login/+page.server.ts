@@ -1,11 +1,15 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import {
+	REFRESH_COOKIE,
 	SESSION_COOKIE,
 	createSessionToken,
+	refreshCookieOptions,
+	refreshTtl,
 	sessionCookieOptions,
 	verifyCredentials
 } from '$lib/server/auth';
+import { createSession } from '$lib/server/sessions';
 
 // Simple in-process attempt throttle. Not a substitute for a real rate limiter
 // behind a proxy, but it stops a single host grinding passwords against a
@@ -59,7 +63,15 @@ export const actions: Actions = {
 		}
 
 		attempts.delete(ip);
-		cookies.set(SESSION_COOKIE, await createSessionToken(session), sessionCookieOptions);
+
+		// Two cookies, two jobs: a short-lived access token the request hook can
+		// verify without touching the database, and a rotating refresh token
+		// backed by a `sessions` row so this login can actually be revoked and
+		// so it ends at a fixed time no matter how active the user stays.
+		const refresh = await createSession(session, refreshTtl());
+		cookies.set(SESSION_COOKIE, await createSessionToken(session), sessionCookieOptions());
+		cookies.set(REFRESH_COOKIE, refresh, refreshCookieOptions());
+
 		redirect(303, url.searchParams.get('next') ?? '/admin');
 	}
 };
