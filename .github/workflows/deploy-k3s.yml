@@ -67,27 +67,47 @@ jobs:
           # buildah, not docker: the runner is a pod, and asking it to talk to
           # a docker daemon means either mounting the host socket (root on the
           # node for anything that can write a Dockerfile) or docker-in-docker.
+          #
+          # Tagged with the docker.io/library/ prefix even though NOTHING is
+          # pushed to any registry. It is a purely local name: kubelet
+          # canonicalises the bare `portfolio-webapp:TAG` in the manifest to
+          # `docker.io/library/portfolio-webapp:TAG` before looking it up, and
+          # under imagePullPolicy: Never it only ever consults the node's own
+          # content store. Tag it any other way and the image is present but
+          # invisible to the kubelet.
           buildah bud --isolation chroot --target "$TARGET" \
-            -t "localhost/${IMAGE_REPO}:${TAG}" .
+            -t "docker.io/library/${IMAGE_REPO}:${TAG}" .
 
       - name: Load into the node's containerd
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          buildah push "localhost/${IMAGE_REPO}:${TAG}" \
-            "oci-archive:/tmp/${IMAGE_REPO}-${TAG}.tar:${IMAGE_REPO}:${TAG}"
-          # --base-name MUST be fully qualified. kubelet normalises the bare
-          # `portfolio-webapp:TAG` in the manifest to
-          # `docker.io/library/portfolio-webapp:TAG` before looking it up, so
-          # importing under the short name leaves the image present in
-          # containerd but invisible to the kubelet — which, under
-          # imagePullPolicy: Never, surfaces as ErrImageNeverPull and a
-          # rollout that stalls until it times out.
-          ctr --address "$CONTAINERD_SOCK" -n k8s.io images import \
-            --base-name "docker.io/library/${IMAGE_REPO}" \
-            "/tmp/${IMAGE_REPO}-${TAG}.tar"
-          rm -f "/tmp/${IMAGE_REPO}-${TAG}.tar"
+          IMAGE="docker.io/library/${IMAGE_REPO}:${TAG}"
+          TAR="/tmp/${IMAGE_REPO}-${TAG}.tar"
+
+          # docker-archive, not oci-archive, and no --base-name. An OCI archive
+          # carries its name in a ref annotation that ctr combines with
+          # --base-name; give it a fully-qualified base name and it silently
+          # imports NOTHING while still exiting 0, so the breakage only shows up
+          # five minutes later as a rollout timeout. A docker-archive carries
+          # RepoTags, which ctr honours verbatim.
+          #
+          # Nothing leaves the machine: buildah writes a tar, ctr reads that tar
+          # into the node's containerd over the mounted socket. No registry, no
+          # credentials, no network.
+          buildah push "$IMAGE" "docker-archive:${TAR}:${IMAGE}"
+          ctr --address "$CONTAINERD_SOCK" -n k8s.io images import "$TAR"
+          rm -f "$TAR"
+
+          # Verify before rolling. A missing image would otherwise surface as
+          # ErrImageNeverPull only after the rollout burns its full timeout.
+          if ! ctr --address "$CONTAINERD_SOCK" -n k8s.io images ls -q | grep -qx "$IMAGE"; then
+            echo "::error::$IMAGE missing from the node's containerd after import"
+            ctr --address "$CONTAINERD_SOCK" -n k8s.io images ls -q | grep "$IMAGE_REPO" || true
+            exit 1
+          fi
+          echo "$IMAGE present on the node"
 
       - name: Roll the deployment
         env:
