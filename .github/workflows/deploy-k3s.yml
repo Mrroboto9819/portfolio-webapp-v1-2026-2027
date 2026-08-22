@@ -102,9 +102,17 @@ jobs:
 
           # Verify before rolling. A missing image would otherwise surface as
           # ErrImageNeverPull only after the rollout burns its full timeout.
-          if ! ctr --address "$CONTAINERD_SOCK" -n k8s.io images ls -q | grep -qx "$IMAGE"; then
+          #
+          # Collected into a variable and matched with a here-string rather than
+          # piped into `grep -q`. Under `set -o pipefail` that pipe reports a
+          # FALSE NEGATIVE on success: grep -q exits at the first match and
+          # closes the pipe, ctr dies of SIGPIPE (141), pipefail surfaces 141 as
+          # the pipeline's status, and `!` turns the successful match into a
+          # failure. A here-string involves no pipe and no second process.
+          IMAGES=$(ctr --address "$CONTAINERD_SOCK" -n k8s.io images ls -q)
+          if ! grep -qxF "$IMAGE" <<<"$IMAGES"; then
             echo "::error::$IMAGE missing from the node's containerd after import"
-            ctr --address "$CONTAINERD_SOCK" -n k8s.io images ls -q | grep "$IMAGE_REPO" || true
+            grep -F "$IMAGE_REPO" <<<"$IMAGES" || true
             exit 1
           fi
           echo "$IMAGE present on the node"
