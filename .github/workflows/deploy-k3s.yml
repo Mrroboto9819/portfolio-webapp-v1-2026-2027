@@ -95,8 +95,11 @@ jobs:
           set -euo pipefail
           POD=$(kubectl -n "$APP_NS" get pod -l "app=$APP" \
             -o jsonpath='{.items[0].metadata.name}')
+          # bun, not node: the runtime image is oven/bun. It does ship a node
+          # fallback shim, but that is a Bun implementation detail, not a
+          # contract — and there is no curl or wget in the image either.
           BODY=$(kubectl -n "$APP_NS" exec "$POD" -- \
-            node -e 'fetch("http://127.0.0.1:3000/api/v1/health").then(r=>r.text()).then(console.log)')
+            bun -e 'fetch("http://127.0.0.1:3000/api/v1/health").then(r=>r.text()).then(console.log)')
           echo "$BODY"
           case "$BODY" in *'"db":true'*) echo "healthy";; *) echo "UNHEALTHY"; exit 1;; esac
 
