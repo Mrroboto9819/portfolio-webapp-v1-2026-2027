@@ -1,0 +1,24 @@
+# Local development. This is the ONLY docker path that mounts your working
+# tree — stage and production build immutable images from the main Dockerfile.
+#
+# network_mode: host so 127.0.0.1 inside the container is the host loopback,
+# which is where a port-forward to the cluster database
+# exposes the in-cluster Mongo. Start that port-forward before `up`.
+#
+#   docker compose -f docker-compose.dev.yml up --build
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: portfolio-web-dev
+    network_mode: host
+    env_file:
+      - .env
+    volumes:
+      # bind mount for hot reload; the anonymous volumes keep the container's
+      # own node_modules/.svelte-kit from being shadowed by the host's
+      - .:/app
+      - /app/node_modules
+      - /app/.svelte-kit
+    restart: unless-stopped

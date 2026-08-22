@@ -1,0 +1,24 @@
+# Keep credentials and local state out of the build context. Without this,
+# `COPY . .` bakes .env straight into an image layer.
+.env
+.env.*
+
+.git
+.gitignore
+node_modules
+.svelte-kit
+build
+k8s
+
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+README.md
+.vscode
+.DS_Store
+
+# reference material, not shipped
+docs
+deploy-beta.sh
+DESIGN.md

@@ -1,0 +1,52 @@
+node_modules
+
+# Output
+.svelte-kit
+build
+.output
+.vercel
+.netlify
+
+# Deployment manifests are kept out of the repo (contain cluster-specific
+# config and rendered Secrets). They live on the server under k8s/.
+k8s/
+
+# Deploy scripts carry cluster hostnames, namespaces and node names.
+# Deployment is CI's job; the script stays on the server.
+deploy*.sh
+*.deploy.sh
+
+# Env / credentials — never commit.
+# No .env.example either: a checked-in template both drifts from reality
+# and advertises exactly which credentials this app holds. The required
+# variables are documented in the README by name only.
+.env
+.env.*
+!.env.d.ts
+*.example
+*.example.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+id_rsa*
+id_ed25519*
+*credentials*
+*secret*
+!src/lib/server/auth.ts
+
+# Design references — third-party reference screens and their exports are
+# not ours to redistribute, and the internal design notes aren't public.
+docs/
+*reference-design*/
+*reference-disign*/
+static/refs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*

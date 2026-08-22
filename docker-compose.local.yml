@@ -1,0 +1,138 @@
+# Full local stack: Mongo + MinIO + the SvelteKit app (server and client).
+#
+#   docker compose --env-file .env.local -f docker-compose.local.yml up --build
+#
+# --env-file is required, not optional. Compose resolves ${...} in THIS file
+# from the shell and from --env-file (defaulting to .env); the per-service
+# `env_file:` key below only populates the containers. Without the flag the
+# port and credential lookups below fail with the messages they carry.
+#
+# This is the self-contained one: it runs its OWN database and object store,
+# so nothing outside Docker is required. Contrast with docker-compose.dev.yml,
+# which uses network_mode: host and expects you to port-forward the in-cluster
+# Mongo yourself — use that only when you deliberately want cluster data.
+#
+# ── Configuration ───────────────────────────────────────────────────────────
+# This file contains NO values. Every setting is read from .env.local, which is
+# gitignored and never leaves your machine. Two mechanisms, on purpose:
+#
+#   env_file:      hands the whole file to the container. The app's own config
+#                  (Mongo URI, JWT secrets, S3 credentials) arrives this way,
+#                  so adding a variable to the app means editing .env.local
+#                  only — this file does not enumerate them and cannot drift.
+#
+#   ${VAR:?...}    for the handful of values Compose itself must interpolate
+#                  before any container exists: published ports, and the root
+#                  credentials Mongo/MinIO seed themselves with. The `:?` form
+#                  has no default — an unset variable aborts `up` with the
+#                  message shown, instead of silently starting a service with
+#                  a value someone guessed.
+#
+# .env.local is separate from .env because the two stacks need different
+# addresses for the same keys: here MONGODB_URI points at `mongo:27017` on the
+# Compose network, while .env points at 127.0.0.1 for the host-network stack
+# and for `bun run dev`. One file cannot be correct for both.
+
+name: portafolio-local
+
+services:
+  # ---- database ----
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?set MONGO_ROOT_USER in .env.local}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env.local}
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:?set MONGO_INITDB_DATABASE in .env.local}
+    ports:
+      # Host-side only, for Compass/mongosh. The app reaches Mongo over the
+      # Compose network as mongo:27017 and does not use this mapping.
+      # Keep it off 27017: that is usually held by
+      # a port-forward to the cluster database.
+      - '${MONGO_HOST_PORT:?set MONGO_HOST_PORT in .env.local}:27017'
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # The app's first query fails outright if Mongo is still electing, so the
+      # app waits on this rather than on the container merely existing.
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  # ---- object storage (uploaded images/media) ----
+  # Mirrors the cluster's storage/minio deployment so an upload path that works
+  # here works there: same S3 API, same path-style addressing, same bucket.
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env.local}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env.local}
+    ports:
+      - '${MINIO_HOST_PORT:?set MINIO_HOST_PORT in .env.local}:9000'
+      - '${MINIO_CONSOLE_HOST_PORT:?set MINIO_CONSOLE_HOST_PORT in .env.local}:9001'
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # ---- one-shot: create the bucket and make its public prefix readable ----
+  # Runs to completion and exits. In the cluster this is done once by hand;
+  # locally the stack has to come up reproducibly from an empty volume, so it
+  # is a service with restart: "no" rather than a documented manual step.
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: 'no'
+    env_file:
+      - .env.local
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY"
+        mc mb --ignore-existing "local/$$S3_BUCKET"
+        # Anonymous GET only, and only on the bucket the browser reads from.
+        # Writes still require credentials, exactly as in the cluster.
+        mc anonymous set download "local/$$S3_BUCKET"
+        echo "bucket $$S3_BUCKET ready"
+
+  # ---- the app (SvelteKit server + client) ----
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    ports:
+      - '${APP_HOST_PORT:?set APP_HOST_PORT in .env.local}:3000'
+    env_file:
+      # Every application variable comes from here — MONGODB_URI, MONGODB_DB,
+      # JWT_*, ADMIN_*, S3_*, ORIGIN, PORT, HOST. Nothing is restated above.
+      - .env.local
+    volumes:
+      # Bind mount for hot reload. The anonymous volumes stop the host's
+      # node_modules/.svelte-kit from shadowing the ones built in the image —
+      # they were installed for the container's platform, the host's were not.
+      - .:/app
+      - /app/node_modules
+      - /app/.svelte-kit
+
+volumes:
+  mongo-data:
+  minio-data:

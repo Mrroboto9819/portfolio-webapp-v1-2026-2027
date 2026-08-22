@@ -1,0 +1,187 @@
+# Auto-deploy to the k3s cluster on every push to develop.
+#
+# main is NOT handled here — that branch targets AWS and gets its own
+# workflow when that environment exists.
+#
+# Runs on an in-cluster self-hosted runner (see k8s/ci/runner.yaml on the
+# server). The runner pod mounts the k3s containerd socket, so it can build
+# the image and load it straight into the kubelet's image cache — this
+# cluster has no registry, and the deployment runs imagePullPolicy: Never.
+#
+# Manifests are deliberately NOT applied here: k8s/ is gitignored, so CI
+# cannot see it. CI only rolls the image tag forward on the deployment that
+# already exists. Changing a manifest is a deliberate `kubectl apply` on the
+# server, which is the right blast radius for cluster config.
+name: Deploy to k3s (beta)
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-k3s-beta
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux, portfolio-webapp]
+    timeout-minutes: 30
+    env:
+      IMAGE_REPO: portfolio-webapp
+      APP_NS: portafolio
+      APP: portafolio-beta
+      CONTAINER: portafolio
+      TARGET: stage
+      CONTAINERD_SOCK: /run/k3s/containerd/containerd.sock
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install kubectl
+        # myoung34/github-runner ships buildah and ctr but not kubectl, and
+        # the rollout/smoke-test/rollback steps all need it. Cached on the
+        # runner's filesystem, so this is a no-op after the first job.
+        run: |
+          set -euo pipefail
+          if ! command -v kubectl >/dev/null; then
+            KUBE_VER=$(curl -sL https://dl.k8s.io/release/stable.txt)
+            curl -sLo /tmp/kubectl "https://dl.k8s.io/release/${KUBE_VER}/bin/linux/amd64/kubectl"
+            install -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+            rm -f /tmp/kubectl
+          fi
+          kubectl version --client --output=yaml | head -3
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "Building ${IMAGE_REPO}:${GITHUB_SHA::7}"
+
+      - name: Build image
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # buildah, not docker: the runner is a pod, and asking it to talk to
+          # a docker daemon means either mounting the host socket (root on the
+          # node for anything that can write a Dockerfile) or docker-in-docker.
+          buildah bud --isolation chroot --target "$TARGET" \
+            -t "localhost/${IMAGE_REPO}:${TAG}" .
+
+      - name: Load into the node's containerd
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          buildah push "localhost/${IMAGE_REPO}:${TAG}" \
+            "oci-archive:/tmp/${IMAGE_REPO}-${TAG}.tar:${IMAGE_REPO}:${TAG}"
+          ctr --address "$CONTAINERD_SOCK" -n k8s.io images import \
+            --base-name "${IMAGE_REPO}" "/tmp/${IMAGE_REPO}-${TAG}.tar"
+          rm -f "/tmp/${IMAGE_REPO}-${TAG}.tar"
+
+      - name: Roll the deployment
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          kubectl -n "$APP_NS" set image \
+            "deployment/$APP" "$CONTAINER=${IMAGE_REPO}:${TAG}"
+          kubectl -n "$APP_NS" rollout status "deployment/$APP" --timeout=300s
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          POD=$(kubectl -n "$APP_NS" get pod -l "app=$APP" \
+            -o jsonpath='{.items[0].metadata.name}')
+          BODY=$(kubectl -n "$APP_NS" exec "$POD" -- \
+            node -e 'fetch("http://127.0.0.1:3000/api/v1/health").then(r=>r.text()).then(console.log)')
+          echo "$BODY"
+          case "$BODY" in *'"db":true'*) echo "healthy";; *) echo "UNHEALTHY"; exit 1;; esac
+
+      - name: Roll back on failure
+        if: failure()
+        run: kubectl -n "$APP_NS" rollout undo "deployment/$APP" || true
+
+      - name: Notify Discord
+        # Runs on every outcome — success, failure and cancellation — so the
+        # channel reflects reality instead of only the happy path. Placed last
+        # and guarded with always() so it still fires after "Roll back on
+        # failure" has done its work, and reports the job's real status.
+        #
+        # WEBHOOK_DC is a repository secret (Settings -> Secrets and variables
+        # -> Actions). NOT an environment secret: this job declares no
+        # `environment:`, so an environment-scoped secret would resolve to an
+        # empty string and the notification would silently vanish.
+        if: always()
+        env:
+          WEBHOOK_DC: ${{ secrets.WEBHOOK_DC }}
+          STATUS: ${{ job.status }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${WEBHOOK_DC:-}" ]; then
+            echo "::warning::WEBHOOK_DC is not set — skipping Discord notification."
+            echo "Add it under Settings -> Secrets and variables -> Actions -> New repository secret."
+            exit 0
+          fi
+
+          case "$STATUS" in
+            success)   COLOR=3066993;  TITLE="✅ Deploy succeeded" ;;
+            failure)   COLOR=15158332; TITLE="❌ Deploy failed — rolled back" ;;
+            cancelled) COLOR=9807270;  TITLE="⚪ Deploy cancelled" ;;
+            *)         COLOR=10181046; TITLE="❔ Deploy finished: ${STATUS}" ;;
+          esac
+
+          # Only the first line of the commit subject — Discord field values
+          # cap at 1024 chars and a long body makes the embed unreadable.
+          SUBJECT=$(printf '%s' "${COMMIT_MSG:-}" | head -n1 | cut -c1-180)
+
+          # jq builds the payload so commit subjects containing quotes,
+          # backslashes or unicode can't produce malformed JSON.
+          PAYLOAD=$(jq -n \
+            --arg title    "$TITLE" \
+            --arg env      "beta (${TARGET})" \
+            --arg branch   "${GITHUB_REF_NAME}" \
+            --arg commit   "\`${GITHUB_SHA:0:7}\` ${SUBJECT}" \
+            --arg image    "${IMAGE_REPO}:${TAG:-unknown}" \
+            --arg target   "${APP_NS}/${APP}" \
+            --arg actor    "$ACTOR" \
+            --arg url      "$RUN_URL" \
+            --argjson color "$COLOR" \
+            '{
+              username: "k3s deploy",
+              embeds: [{
+                title: $title,
+                url: $url,
+                color: $color,
+                fields: [
+                  { name: "Environment", value: $env,    inline: true },
+                  { name: "Branch",      value: $branch, inline: true },
+                  { name: "Image",       value: $image,  inline: true },
+                  { name: "Deployment",  value: $target, inline: true },
+                  { name: "By",          value: $actor,  inline: true },
+                  { name: "Commit",      value: $commit, inline: false }
+                ],
+                footer: { text: "portfolio-webapp-2026-2027" }
+              }]
+            }')
+
+          # Never let a webhook hiccup flip a green deploy red: report the
+          # HTTP code, but always exit 0. Discord returns 204 on success.
+          CODE=$(curl -sS -o /tmp/discord-resp.txt -w '%{http_code}' \
+            --retry 3 --retry-delay 2 --max-time 15 \
+            -H 'Content-Type: application/json' \
+            -X POST -d "$PAYLOAD" "$WEBHOOK_DC") || CODE=000
+
+          if [ "$CODE" = "204" ] || [ "$CODE" = "200" ]; then
+            echo "Discord notified (HTTP $CODE)"
+          else
+            echo "::warning::Discord webhook returned HTTP $CODE"
+            head -c 500 /tmp/discord-resp.txt || true
+          fi

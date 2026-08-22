@@ -1,0 +1,487 @@
+@import 'tailwindcss';
+
+/* ============================================================
+   NEON PROTOCOL — design tokens
+   Values are lifted verbatim from the reference Tailwind config
+   (docs/reference-designs/). See DESIGN.md for the full spec and
+   for the three places the prose docs contradict the code.
+   ============================================================ */
+@theme {
+	/* --- surfaces (tonal ladder) ---
+	   DELIBERATE DEVIATION from the reference tokens: the whole ladder is
+	   pulled roughly four steps darker (reference surface was #131319). The
+	   emissive accents are unchanged, so dropping the ground makes them read
+	   as genuinely light-emitting rather than merely bright. See DESIGN.md
+	   §2.6 for the reference values if you ever need to go back. */
+	--color-surface: #08080d;
+	--color-surface-dim: #050509;
+	--color-surface-bright: #1e1e28;
+	--color-surface-lowest: #030305;
+	--color-surface-low: #0c0c12;
+	--color-surface-container: #101017;
+	--color-surface-high: #16161f;
+	--color-surface-highest: #1e1e28;
+	--color-surface-variant: #1a1a23;
+
+	/* --- text --- */
+	--color-on-surface: #e4e1ea;
+	--color-on-surface-variant: #b9cacb;
+
+	/* --- primary: electric cyan --- */
+	--color-primary: #e3fdff;
+	--color-primary-container: #00f3ff;
+	--color-primary-fixed: #6ff6ff;
+	--color-primary-dim: #00dce6;
+	--color-on-primary: #00373a;
+	--color-on-primary-container: #006b71;
+
+	/* --- secondary: hot magenta --- */
+	--color-secondary: #ffabf3;
+	--color-secondary-container: #fe00fe;
+	--color-secondary-fixed: #ffd7f5;
+	--color-on-secondary: #5b005b;
+
+	/* --- tertiary: toxic lime --- */
+	--color-tertiary: #ecffcd;
+	--color-tertiary-container: #a1f21d;
+	--color-tertiary-fixed: #a8f928;
+	--color-tertiary-dim: #8fdb00;
+	--color-on-tertiary-container: #446b00;
+
+	/* --- error --- */
+	--color-error: #ffb4ab;
+	--color-on-error: #690005;
+
+	/* --- structure --- */
+	--color-outline: #849495;
+	--color-outline-variant: #3a494b;
+
+	/* --- type --- */
+	--font-sans: Geist, ui-sans-serif, system-ui, sans-serif;
+	--font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+	/* --- layout --- */
+	--spacing-gutter: 16px;
+	--spacing-margin-mobile: 16px;
+	--spacing-margin-desktop: 40px;
+	--container-max: 1440px;
+}
+
+/* ============================================================
+   Base
+   These MUST live in @layer base. Tailwind 4 emits its utilities
+   into @layer utilities, and in the cascade an UNLAYERED rule beats
+   any layered one — so a bare `a { color: ... }` silently overrides
+   every text-colour utility on every link. That produced a real bug:
+   the filled hero CTA (`text-surface` on `bg-primary-container`)
+   rendered cyan-on-cyan and the label vanished entirely.
+   ============================================================ */
+@layer base {
+	html {
+		scroll-behavior: smooth;
+	}
+
+	body {
+		margin: 0;
+		background: var(--color-surface);
+		color: var(--color-on-surface);
+		font-family: var(--font-sans);
+		overflow-x: hidden;
+		-webkit-font-smoothing: antialiased;
+	}
+
+	/* Default link colour only — any `text-*` utility on an anchor wins. */
+	a {
+		color: var(--color-primary-container);
+		text-decoration: none;
+	}
+	a:hover {
+		color: var(--color-primary-fixed);
+	}
+
+	::selection {
+		background: var(--color-primary-container);
+		color: var(--color-surface);
+	}
+
+	/* Scrollbar — reference values */
+	::-webkit-scrollbar {
+		width: 8px;
+	}
+	::-webkit-scrollbar-track {
+		background: #131319;
+	}
+	::-webkit-scrollbar-thumb {
+		background: #00dce6;
+	}
+	::-webkit-scrollbar-thumb:hover {
+		background: #6ff6ff;
+	}
+}
+
+/* ============================================================
+   Shape — the language is sharp; depth comes from chamfers.
+   ============================================================ */
+.chamfer-tr {
+	clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+}
+.chamfer-bl {
+	clip-path: polygon(0 0, 100% 0, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+.clip-corner {
+	clip-path: polygon(
+		12px 0,
+		100% 0,
+		100% calc(100% - 12px),
+		calc(100% - 12px) 100%,
+		0 100%,
+		0 12px
+	);
+}
+
+/* ============================================================
+   Elevation — tonal layering + glass, never a soft drop shadow.
+   ============================================================ */
+.glass {
+	background: rgba(2, 2, 6, 0.72);
+	backdrop-filter: blur(20px);
+	-webkit-backdrop-filter: blur(20px);
+	border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.hud-border {
+	border: 1px solid rgba(0, 220, 230, 0.3);
+}
+
+.rule {
+	height: 1px;
+	background: rgba(255, 255, 255, 0.1);
+}
+
+/* ============================================================
+   Glow — the signature of the system.
+   ============================================================ */
+.glow {
+	text-shadow: 0 0 8px currentColor;
+}
+.glow-hero {
+	text-shadow: 0 0 12px rgba(0, 220, 230, 0.5);
+}
+.glow-brand {
+	text-shadow: 0 0 8px rgba(0, 220, 230, 0.8);
+}
+
+/* ============================================================
+   Atmosphere overlays (Level 0 — the void)
+   ============================================================ */
+.atmos-noise {
+	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+	opacity: 0.02;
+}
+
+.atmos-scanlines {
+	background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 50%, rgba(0, 220, 230, 0.05) 50%);
+	background-size: 100% 4px;
+}
+
+/* Two grids: a fine 40px mesh plus a brighter 200px major rule, so the
+   structure still reads through the CRT and scanline overlays. */
+.atmos-grid {
+	background-image:
+		linear-gradient(to right, rgba(0, 220, 230, 0.16) 1px, transparent 1px),
+		linear-gradient(to bottom, rgba(0, 220, 230, 0.16) 1px, transparent 1px),
+		linear-gradient(to right, rgba(0, 220, 230, 0.09) 1px, transparent 1px),
+		linear-gradient(to bottom, rgba(0, 220, 230, 0.09) 1px, transparent 1px);
+	background-size:
+		200px 200px,
+		200px 200px,
+		40px 40px,
+		40px 40px;
+	-webkit-mask-image: radial-gradient(circle at 50% 14%, black 10%, transparent 78%);
+	mask-image: radial-gradient(circle at 50% 14%, black 10%, transparent 78%);
+	animation: pulse-grid 8s infinite alternate ease-in-out;
+}
+
+@keyframes pulse-grid {
+	0% {
+		opacity: 0.55;
+	}
+	100% {
+		opacity: 1;
+	}
+}
+
+/* Sweeping scan band */
+.atmos-sweep {
+	background: linear-gradient(to bottom, transparent, rgba(0, 220, 230, 0.08), transparent);
+	animation: sweep 6s linear infinite;
+}
+
+@keyframes sweep {
+	0% {
+		transform: translateY(-100%);
+	}
+	100% {
+		transform: translateY(100vh);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.atmos-grid,
+	.atmos-sweep {
+		animation: none;
+	}
+	.atmos-sweep {
+		display: none;
+	}
+	html {
+		scroll-behavior: auto;
+	}
+}
+
+/* ============================================================
+   HUD / game chrome
+   ============================================================ */
+
+/* L-shaped corner brackets — pure framing, drawn with gradients so they cost
+   no extra elements. Applied to a positioned parent. */
+.hud-corners::before,
+.hud-corners::after {
+	content: '';
+	position: absolute;
+	width: 18px;
+	height: 18px;
+	pointer-events: none;
+	border-color: var(--color-primary-container);
+	opacity: 0.55;
+}
+.hud-corners::before {
+	top: -1px;
+	left: -1px;
+	border-top: 1px solid;
+	border-left: 1px solid;
+}
+.hud-corners::after {
+	right: -1px;
+	bottom: -1px;
+	border-right: 1px solid;
+	border-bottom: 1px solid;
+}
+
+/* CRT subpixel + rolling darkening. Sits above content, below chrome. */
+.crt::before {
+	content: '';
+	position: fixed;
+	inset: 0;
+	z-index: 41;
+	pointer-events: none;
+	background:
+		linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.28) 50%),
+		linear-gradient(90deg, rgba(255, 0, 0, 0.05), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.05));
+	background-size:
+		100% 2px,
+		3px 100%;
+}
+
+/* Chromatic-aberration glitch, used on hover and on the hero once at load. */
+@keyframes glitch-shift {
+	0%,
+	100% {
+		text-shadow:
+			0 0 12px rgba(0, 220, 230, 0.5),
+			0 0 0 transparent;
+		transform: translate(0);
+	}
+	20% {
+		text-shadow:
+			-2px 0 rgba(254, 0, 254, 0.75),
+			2px 0 rgba(0, 243, 255, 0.75);
+		transform: translate(1px, -1px);
+	}
+	40% {
+		text-shadow:
+			2px 0 rgba(254, 0, 254, 0.75),
+			-2px 0 rgba(0, 243, 255, 0.75);
+		transform: translate(-1px, 1px);
+	}
+	60% {
+		text-shadow:
+			-1px 0 rgba(161, 242, 29, 0.6),
+			1px 0 rgba(0, 243, 255, 0.6);
+		transform: translate(1px, 0);
+	}
+}
+.glitch-hover:hover {
+	animation: glitch-shift 320ms steps(2, end) 1;
+}
+
+/* Cursor for terminal-style typed lines. */
+@keyframes caret {
+	50% {
+		opacity: 0;
+	}
+}
+.caret::after {
+	content: '▋';
+	margin-left: 2px;
+	animation: caret 1s step-end infinite;
+	color: var(--color-primary-container);
+}
+
+/* Panels lift and light up on hover — the "selectable menu item" feel. */
+.game-hover {
+	transition:
+		border-color 200ms ease,
+		box-shadow 200ms ease,
+		transform 200ms ease;
+}
+.game-hover:hover {
+	border-color: rgba(0, 220, 230, 0.55);
+	box-shadow: 0 0 18px rgba(0, 220, 230, 0.18);
+	transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.glitch-hover:hover,
+	.caret::after {
+		animation: none;
+	}
+	.game-hover:hover {
+		transform: none;
+	}
+}
+
+/* ============================================================
+   Rendered markdown (blog post bodies)
+   The HTML here comes from src/lib/server/markdown.ts, already
+   sanitised. These are the type scales, link and image rules the
+   editor can rely on.
+   ============================================================ */
+.prose-neon {
+	color: var(--color-on-surface-variant);
+	font-size: 1rem;
+	line-height: 1.75;
+}
+
+.prose-neon > * + * {
+	margin-top: 1.25em;
+}
+
+.prose-neon h2,
+.prose-neon h3,
+.prose-neon h4 {
+	color: var(--color-on-surface);
+	font-weight: 700;
+	letter-spacing: -0.02em;
+	line-height: 1.25;
+	margin-top: 2.2em;
+	margin-bottom: 0.7em;
+}
+.prose-neon h2 {
+	font-size: 1.6rem;
+	padding-bottom: 0.35em;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.prose-neon h3 {
+	font-size: 1.3rem;
+}
+.prose-neon h4 {
+	font-size: 1.1rem;
+	font-family: var(--font-mono);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--color-primary-container);
+}
+
+.prose-neon a {
+	color: var(--color-primary-container);
+	text-decoration: underline;
+	text-decoration-color: rgba(0, 243, 255, 0.4);
+	text-underline-offset: 4px;
+	transition: text-decoration-color 150ms ease;
+}
+.prose-neon a:hover {
+	text-decoration-color: var(--color-primary-container);
+}
+
+.prose-neon strong {
+	color: var(--color-on-surface);
+	font-weight: 700;
+}
+
+.prose-neon img {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.prose-neon ul,
+.prose-neon ol {
+	padding-left: 1.4em;
+}
+.prose-neon li::marker {
+	color: var(--color-primary-container);
+}
+.prose-neon li + li {
+	margin-top: 0.45em;
+}
+
+.prose-neon blockquote {
+	margin-left: 0;
+	padding: 0.2em 0 0.2em 1.1em;
+	border-left: 2px solid var(--color-secondary-container);
+	color: var(--color-on-surface);
+	font-style: italic;
+}
+
+.prose-neon code {
+	font-family: var(--font-mono);
+	font-size: 0.86em;
+	background: var(--color-surface-container);
+	border: 1px solid rgba(132, 148, 149, 0.3);
+	padding: 0.15em 0.4em;
+	color: var(--color-tertiary-container);
+}
+
+.prose-neon pre {
+	background: var(--color-surface-lowest);
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	padding: 1.1em 1.2em;
+	overflow-x: auto;
+}
+.prose-neon pre code {
+	background: none;
+	border: 0;
+	padding: 0;
+	color: var(--color-on-surface);
+	font-size: 0.85em;
+}
+
+.prose-neon hr {
+	border: 0;
+	border-top: 1px solid rgba(255, 255, 255, 0.1);
+	margin: 2.5em 0;
+}
+
+/* Wide tables scroll inside their own box rather than the page. */
+.prose-neon table {
+	width: 100%;
+	border-collapse: collapse;
+	display: block;
+	overflow-x: auto;
+	font-size: 0.92em;
+}
+.prose-neon th,
+.prose-neon td {
+	padding: 0.6em 0.8em;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+	text-align: left;
+}
+.prose-neon th {
+	font-family: var(--font-mono);
+	font-size: 0.85em;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--color-primary-container);
+}

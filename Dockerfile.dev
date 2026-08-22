@@ -1,0 +1,17 @@
+# Local development only — built by docker-compose.dev.yml, never deployed.
+# Source is bind-mounted over /app at runtime, so this image just needs the
+# dependency tree and the dev server. Stage and production images come from
+# the main Dockerfile's `stage` / `production` targets.
+#
+# Pinned to match the main Dockerfile — see the comment there for why the
+# bun version is not allowed to float.
+ARG BUN_VERSION=1.4.0
+FROM oven/bun:${BUN_VERSION}-alpine
+WORKDIR /app
+
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --ignore-scripts
+
+COPY . .
+EXPOSE 3000
+CMD ["bun", "run", "dev"]
