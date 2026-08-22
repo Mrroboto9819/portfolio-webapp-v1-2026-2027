@@ -77,8 +77,16 @@ jobs:
           set -euo pipefail
           buildah push "localhost/${IMAGE_REPO}:${TAG}" \
             "oci-archive:/tmp/${IMAGE_REPO}-${TAG}.tar:${IMAGE_REPO}:${TAG}"
+          # --base-name MUST be fully qualified. kubelet normalises the bare
+          # `portfolio-webapp:TAG` in the manifest to
+          # `docker.io/library/portfolio-webapp:TAG` before looking it up, so
+          # importing under the short name leaves the image present in
+          # containerd but invisible to the kubelet — which, under
+          # imagePullPolicy: Never, surfaces as ErrImageNeverPull and a
+          # rollout that stalls until it times out.
           ctr --address "$CONTAINERD_SOCK" -n k8s.io images import \
-            --base-name "${IMAGE_REPO}" "/tmp/${IMAGE_REPO}-${TAG}.tar"
+            --base-name "docker.io/library/${IMAGE_REPO}" \
+            "/tmp/${IMAGE_REPO}-${TAG}.tar"
           rm -f "/tmp/${IMAGE_REPO}-${TAG}.tar"
 
       - name: Roll the deployment
