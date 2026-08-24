@@ -47,7 +47,9 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # v5 runs on Node 24. v4 is pinned to the Node 20 runtime, which the
+        # runner now warns is deprecated.
+        uses: actions/checkout@v5
 
       - name: Install kubectl
         # myoung34/github-runner ships buildah and ctr but not kubectl, and
@@ -86,7 +88,7 @@ jobs:
 
       - name: Build image
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ steps.target.outputs.tag }}
         run: |
           set -euo pipefail
           # buildah, not docker: the runner is a pod, and asking it to talk to
@@ -105,7 +107,7 @@ jobs:
 
       - name: Load into the node's containerd
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ steps.target.outputs.tag }}
         run: |
           set -euo pipefail
           IMAGE="docker.io/library/${IMAGE_REPO}:${TAG}"
@@ -217,7 +219,7 @@ jobs:
         env:
           WEBHOOK_DC: ${{ secrets.WEBHOOK_DC }}
           STATUS: ${{ job.status }}
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ steps.target.outputs.tag }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
           ACTOR: ${{ github.actor }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
