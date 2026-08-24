@@ -18,9 +18,20 @@
 		if (!root.contains(e.target as Node)) open = false;
 	}
 
-	// Idle at reduced opacity so it never competes with the page, full strength
-	// whenever it is expanded, hovered, or focused from the keyboard.
-	const solid = $derived(open || hovering);
+	// Opacity follows the pointer and keyboard focus ONLY — not whether the
+	// panel happens to be open. An expanded panel left sitting at full strength
+	// competes with the page for as long as it stays open; fading it the moment
+	// the pointer leaves keeps it available without keeping it loud.
+	const solid = $derived(hovering);
+
+	// Is the track playing an Oliver Tree song? The seek handle becomes his
+	// face for those, spinning while the audio runs.
+	const isTree = $derived(/oliver\s*tree/i.test(String(player.current?.artist ?? '')));
+
+	// Progress as a percentage, for positioning that handle along the track.
+	const pct = $derived(
+		player.duration > 0 ? Math.min(100, Math.max(0, (player.position / player.duration) * 100)) : 0
+	);
 
 	$effect(() => {
 		player.load(songs);
@@ -38,7 +49,7 @@
 	// stands for the rest of the visit.
 	let autoTried = false;
 
-	function tryAutoplay() {
+	async function tryAutoplay() {
 		if (autoTried || !songs.length) return;
 		autoTried = true;
 		// sessionStorage so "I paused this" survives navigation but not a new visit.
@@ -47,7 +58,21 @@
 		} catch {
 			/* private mode — just proceed */
 		}
-		player.playAt(player.index);
+
+		await player.playAt(player.index);
+
+		// Expand ONLY when playback actually began on its own. Sound starting
+		// with no visible source is disorienting, so the panel shows what is
+		// playing and where the controls are.
+		//
+		// Gated on player.playing rather than on having called play(): the
+		// browser may refuse autoplay outright, and popping open a panel for
+		// audio that never started would be worse than staying collapsed.
+		//
+		// Manual starts are deliberately excluded — the reader pressed play
+		// themselves, so they already know, and expanding under their cursor
+		// would move the very control they just used.
+		if (player.playing) open = true;
 	}
 
 	function optOutOnPause() {
@@ -123,15 +148,38 @@
 					<!-- seek -->
 					<div class="mb-1 flex items-center gap-2">
 						<span class="font-mono text-xs text-outline">{fmtTime(player.position)}</span>
-						<input
-							type="range"
-							min="0"
-							max={player.duration || 0}
-							value={player.position}
-							oninput={(e) => player.seek(+e.currentTarget.value)}
-							aria-label="Seek"
-							class="h-1 flex-1 accent-[#00f3ff]"
-						/>
+						<!-- The range input stays the real control — it keeps keyboard
+						     seeking, drag and screen-reader semantics. For an Oliver
+						     Tree track its thumb is hidden and an image is overlaid at
+						     the same position instead: a native thumb cannot carry a
+						     picture, and animating a ::-webkit-slider-thumb is not
+						     reliable across engines. The overlay is pointer-events:none
+						     so every click still lands on the input underneath. -->
+						<div class="relative flex-1">
+							<input
+								type="range"
+								min="0"
+								max={player.duration || 0}
+								value={player.position}
+								oninput={(e) => player.seek(+e.currentTarget.value)}
+								aria-label="Seek"
+								class="h-1 w-full accent-[#00f3ff]"
+								class:tree-track={isTree}
+								style={isTree
+									? `--tree-fill: linear-gradient(to right, #00f3ff ${pct}%, rgba(132,148,149,.35) ${pct}%)`
+									: ''}
+							/>
+							{#if isTree}
+								<img
+									src="/images/tree-dot.png"
+									alt=""
+									aria-hidden="true"
+									class="tree-dot"
+									class:bouncing={player.playing}
+									style="left: {pct}%"
+								/>
+							{/if}
+						</div>
 						<span class="font-mono text-xs text-outline">{fmtTime(player.duration)}</span>
 					</div>
 
@@ -269,8 +317,8 @@
 			<!-- collapsed pill -->
 			<button
 				type="button"
-				onclick={() => (open ? player.toggle() : (open = true))}
-				aria-label={open ? (player.playing ? 'Pause' : 'Play') : 'Open music player'}
+				onclick={() => (open = !open)}
+				aria-label={open ? 'Collapse music player' : 'Open music player'}
 				class="glass clip-corner group flex items-center gap-2.5 px-3.5 py-2.5 transition-colors hover:border-primary-container/50"
 			>
 				<span class="flex h-4 items-end gap-[2px]" aria-hidden="true">
@@ -292,6 +340,85 @@
 {/if}
 
 <style>
+	/* Oliver Tree seek handle.
+	   Setting `appearance: none` on the THUMB alone does nothing — Chrome
+	   ignores thumb sizing unless the input itself has had its appearance
+	   reset first, which is why the cyan dot kept drawing under the image.
+	   Resetting the input also removes the native track, so the track is
+	   redrawn here as a gradient: filled to the current position, dim after. */
+	.tree-track {
+		appearance: none;
+		-webkit-appearance: none;
+		height: 2px;
+		background: transparent;
+		cursor: pointer;
+	}
+	.tree-track::-webkit-slider-runnable-track {
+		height: 2px;
+		border-radius: 2px;
+		background: var(--tree-fill);
+	}
+	.tree-track::-moz-range-track {
+		height: 2px;
+		border-radius: 2px;
+		background: var(--tree-fill);
+	}
+	/* The handle IS the image, so the native thumb is removed entirely rather
+	   than hidden behind it. */
+	.tree-track::-webkit-slider-thumb {
+		appearance: none;
+		-webkit-appearance: none;
+		width: 0;
+		height: 0;
+		border: 0;
+	}
+	.tree-track::-moz-range-thumb {
+		width: 0;
+		height: 0;
+		border: 0;
+		background: transparent;
+	}
+	.tree-track:focus-visible {
+		outline: 1px solid var(--color-primary-container);
+		outline-offset: 4px;
+	}
+
+	.tree-dot {
+		position: absolute;
+		top: 50%;
+		width: 26px;
+		height: 26px;
+		/* Centred on its own progress point AND on the line. The bounce below
+		   re-declares both parts, since a transform replaces rather than adds. */
+		transform: translate(-50%, -50%);
+		pointer-events: none;
+		/* No transition on `left`: position lands every timeupdate tick and
+		   easing between them makes the handle lag the audio. */
+	}
+
+	/* Bounce, not spin — a fixed musical tempo (~140bpm) rather than true beat
+	   detection, which would mean routing the audio through an AnalyserNode and
+	   risking silence if the graph ever fails. Only runs while playing, so a
+	   still handle means paused. */
+	.tree-dot.bouncing {
+		animation: tree-bounce 428ms cubic-bezier(0.3, 0, 0.4, 1) infinite alternate;
+	}
+
+	@keyframes tree-bounce {
+		from {
+			transform: translate(-50%, -50%) translateY(3px) scale(0.94);
+		}
+		to {
+			transform: translate(-50%, -50%) translateY(-4px) scale(1.06);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.tree-dot.bouncing {
+			animation: none;
+		}
+	}
+
 	@keyframes eq {
 		from {
 			height: 20%;
