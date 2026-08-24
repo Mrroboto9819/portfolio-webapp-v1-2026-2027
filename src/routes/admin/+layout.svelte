@@ -59,6 +59,16 @@
 					Overview
 				</a>
 				<a
+					href="/admin/data"
+					class="border-l-2 px-5 py-2.5 font-mono text-xs tracking-[0.1em] uppercase transition-colors hover:text-primary-container"
+					class:border-secondary-container={page.url.pathname === '/admin/data'}
+					class:text-secondary-container={page.url.pathname === '/admin/data'}
+					class:border-transparent={page.url.pathname !== '/admin/data'}
+					class:text-outline={page.url.pathname !== '/admin/data'}
+				>
+					Data
+				</a>
+				<a
 					href="/admin/profile"
 					class="border-l-2 px-5 py-2.5 font-mono text-xs tracking-[0.1em] uppercase transition-colors hover:text-primary-container"
 					class:border-secondary-container={page.url.pathname === '/admin/profile'}

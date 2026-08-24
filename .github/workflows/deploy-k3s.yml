@@ -1,7 +1,12 @@
-# Auto-deploy to the k3s cluster on every push to develop.
+# Auto-deploy to the k3s cluster.
 #
-# main is NOT handled here — that branch targets AWS and gets its own
-# workflow when that environment exists.
+#   develop -> portafolio-beta -> https://beta.pablocabrera.dev
+#   main    -> portafolio-web  -> https://pablocabrera.dev
+#
+# Same job, same runner, same image build; only the target deployment and the
+# Dockerfile stage differ. One workflow rather than two because a production
+# path that diverges from the one exercised daily on beta is a path nobody has
+# actually tested.
 #
 # Runs on an in-cluster self-hosted runner (see k8s/ci/runner.yaml on the
 # server). The runner pod mounts the k3s containerd socket, so it can build
@@ -12,15 +17,16 @@
 # cannot see it. CI only rolls the image tag forward on the deployment that
 # already exists. Changing a manifest is a deliberate `kubectl apply` on the
 # server, which is the right blast radius for cluster config.
-name: Deploy to k3s (beta)
+name: Deploy to k3s
 
 on:
   push:
-    branches: [develop]
+    branches: [develop, main]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-k3s-beta
+  # Per-branch, so a production deploy is never cancelled by a beta push.
+  group: deploy-k3s-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -30,9 +36,7 @@ jobs:
     env:
       IMAGE_REPO: portfolio-webapp
       APP_NS: portafolio
-      APP: portafolio-beta
       CONTAINER: portafolio
-      TARGET: stage
       CONTAINERD_SOCK: /run/k3s/containerd/containerd.sock
 
     steps:
@@ -53,11 +57,26 @@ jobs:
           fi
           kubectl version --client --output=yaml | head -3
 
-      - name: Resolve image tag
-        id: tag
+      - name: Resolve target
+        id: target
         run: |
-          echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          echo "Building ${IMAGE_REPO}:${GITHUB_SHA::7}"
+          set -euo pipefail
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            echo "app=portafolio-web"  >> "$GITHUB_OUTPUT"
+            echo "stage=production"    >> "$GITHUB_OUTPUT"
+            echo "url=https://pablocabrera.dev" >> "$GITHUB_OUTPUT"
+          else
+            echo "app=portafolio-beta" >> "$GITHUB_OUTPUT"
+            echo "stage=stage"         >> "$GITHUB_OUTPUT"
+            echo "url=https://beta.pablocabrera.dev" >> "$GITHUB_OUTPUT"
+          fi
+          echo "tag=${GITHUB_SHA::7}"  >> "$GITHUB_OUTPUT"
+
+      - name: Announce
+        run: |
+          echo "branch : $GITHUB_REF_NAME"
+          echo "target : ${{ steps.target.outputs.app }} (${{ steps.target.outputs.stage }})"
+          echo "image  : ${IMAGE_REPO}:${{ steps.target.outputs.tag }}"
 
       - name: Build image
         env:
@@ -119,7 +138,8 @@ jobs:
 
       - name: Roll the deployment
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ steps.target.outputs.tag }}
+          APP: ${{ steps.target.outputs.app }}
         run: |
           set -euo pipefail
           kubectl -n "$APP_NS" set image \
@@ -127,6 +147,8 @@ jobs:
           kubectl -n "$APP_NS" rollout status "deployment/$APP" --timeout=300s
 
       - name: Smoke test
+        env:
+          APP: ${{ steps.target.outputs.app }}
         run: |
           set -euo pipefail
           POD=$(kubectl -n "$APP_NS" get pod -l "app=$APP" \
@@ -141,7 +163,15 @@ jobs:
 
       - name: Roll back on failure
         if: failure()
-        run: kubectl -n "$APP_NS" rollout undo "deployment/$APP" || true
+        env:
+          APP: ${{ steps.target.outputs.app }}
+        run: |
+          echo "Deploy failed — rolling ${APP} back to the previous revision."
+          kubectl -n "$APP_NS" rollout undo "deployment/$APP" || true
+          kubectl -n "$APP_NS" rollout status "deployment/$APP" --timeout=180s || true
+
+      - name: Done
+        run: echo "Deployed ${{ steps.target.outputs.app }} -> ${{ steps.target.outputs.url }}"
 
       - name: Notify Discord
         # Runs on every outcome — success, failure and cancellation — so the

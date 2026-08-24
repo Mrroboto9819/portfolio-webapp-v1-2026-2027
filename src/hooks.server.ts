@@ -163,6 +163,33 @@ const adminGuard: Handle = async ({ event, resolve }) => {
  * session (the admin UI) or a bearer token matching ADMIN_API_TOKEN (scripts).
  * With neither present, every write is refused: closed by default.
  */
+/**
+ * Endpoints that require an admin even for GET.
+ *
+ * The write guard only inspects mutating methods, which is right for the
+ * content API — those reads ARE the public site. But /api/v1/export returns
+ * every collection including drafts and hidden rows in one response, so a
+ * plain GET would hand the whole database to anyone who knew the path.
+ */
+const ADMIN_ONLY_PREFIXES = ['/api/v1/export'];
+
+const readGuard: Handle = async ({ event, resolve }) => {
+	const { pathname } = event.url;
+	if (ADMIN_ONLY_PREFIXES.some((p) => pathname.startsWith(p))) {
+		if (!event.locals.session) {
+			const expected = env.ADMIN_API_TOKEN;
+			const presented = event.request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+			if (!expected || !presented || presented !== expected) {
+				return json(
+					{ message: apiMessage('api.unauthorized', event.locals.locale) },
+					{ status: 401 }
+				);
+			}
+		}
+	}
+	return resolve(event);
+};
+
 const writeGuard: Handle = async ({ event, resolve }) => {
 	const { request, url } = event;
 
@@ -231,4 +258,12 @@ const analytics: Handle = async ({ event, resolve }) => {
 	return response;
 };
 
-export const handle = sequence(locale, session, csrfGuard, adminGuard, writeGuard, analytics);
+export const handle = sequence(
+	locale,
+	session,
+	csrfGuard,
+	adminGuard,
+	readGuard,
+	writeGuard,
+	analytics
+);
