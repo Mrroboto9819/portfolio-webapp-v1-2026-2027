@@ -35,8 +35,33 @@ function note(ip: string) {
 	attempts.set(ip, rec);
 }
 
+/**
+ * Where to send someone after they sign in.
+ *
+ * `next` arrives from the URL, so it is attacker-controlled: a link to
+ * /admin/login?next=https://evil.example.com would bounce the user off-site
+ * the instant they authenticated, carrying the credibility of having just
+ * signed in to this domain. That is the classic phishing use of an open
+ * redirect.
+ *
+ * Only a same-site absolute PATH is allowed: exactly one leading slash, and
+ * never "//host" or "/\\host" - browsers resolve both of those to another
+ * origin. Anything else falls back to /admin.
+ */
+function safeNext(raw: string | null): string {
+	if (!raw) return '/admin';
+	if (raw[0] !== '/') return '/admin';
+	if (raw[1] === '/' || raw[1] === '\\') return '/admin';
+	// Control characters can smuggle a header break or confuse the URL parser.
+	// Checked by code point so no control byte appears in this source.
+	for (let i = 0; i < raw.length; i++) {
+		if (raw.charCodeAt(i) < 0x20 || raw.charCodeAt(i) === 0x7f) return '/admin';
+	}
+	return raw;
+}
+
 export const load: PageServerLoad = async ({ locals, url }) => {
-	if (locals.session) redirect(303, url.searchParams.get('next') ?? '/admin');
+	if (locals.session) redirect(303, safeNext(url.searchParams.get('next')));
 	return {};
 };
 
@@ -72,6 +97,6 @@ export const actions: Actions = {
 		cookies.set(SESSION_COOKIE, await createSessionToken(session), sessionCookieOptions());
 		cookies.set(REFRESH_COOKIE, refresh, refreshCookieOptions());
 
-		redirect(303, url.searchParams.get('next') ?? '/admin');
+		redirect(303, safeNext(url.searchParams.get('next')));
 	}
 };
