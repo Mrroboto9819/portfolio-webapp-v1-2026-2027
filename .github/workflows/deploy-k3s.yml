@@ -33,6 +33,12 @@ jobs:
   deploy:
     runs-on: [self-hosted, linux, portfolio-webapp]
     timeout-minutes: 30
+    defaults:
+      run:
+        # bash explicitly: the runner defaults to sh here, where ${VAR::7} and
+        # `pipefail` are syntax errors that abort a step in milliseconds with
+        # no useful message.
+        shell: bash
     env:
       IMAGE_REPO: portfolio-webapp
       APP_NS: portafolio
@@ -70,7 +76,7 @@ jobs:
             echo "stage=stage"         >> "$GITHUB_OUTPUT"
             echo "url=https://beta.pablocabrera.dev" >> "$GITHUB_OUTPUT"
           fi
-          echo "tag=${GITHUB_SHA::7}"  >> "$GITHUB_OUTPUT"
+          echo "tag=$(printf %.7s "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
 
       - name: Announce
         run: |
