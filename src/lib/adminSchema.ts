@@ -87,6 +87,21 @@ export const SCHEMAS: Record<EntityName, EntitySchema> = {
 			{ name: 'name', label: 'Company', type: 'text', required: true, column: true },
 			{ name: 'role', label: 'Role', type: 'text', required: true, column: true },
 			{ name: 'period', label: 'Period', type: 'text', required: true, column: true },
+			{ name: 'duration', label: 'Duration', type: 'text', help: 'e.g. 2 yrs 6 mos' },
+			{
+				name: 'employmentType',
+				label: 'Employment type',
+				type: 'text',
+				help: 'Full-time, Internship…'
+			},
+			{ name: 'location', label: 'Location', type: 'text' },
+			{
+				name: 'workMode',
+				label: 'Work mode',
+				type: 'select',
+				options: ['Remote', 'Hybrid', 'On-site']
+			},
+			{ name: 'description', label: 'Description', type: 'textarea' },
 			{ name: 'logo', label: 'Logo', type: 'image' },
 			{ name: 'tech', label: 'Tech', type: 'list' },
 			...common
@@ -118,6 +133,15 @@ export const SCHEMAS: Record<EntityName, EntitySchema> = {
 			{ name: 'field', label: 'Field', type: 'text' },
 			{ name: 'period', label: 'Period', type: 'text', required: true },
 			{ name: 'url', label: 'Link', type: 'text' },
+			{ name: 'credentialId', label: 'Credential ID', type: 'text' },
+			{
+				name: 'track',
+				label: 'Discipline',
+				type: 'select',
+				options: ['frontend', 'backend', 'devops', 'mobile', 'data'],
+				column: true
+			},
+			{ name: 'skills', label: 'Skills', type: 'list' },
 			{ name: 'image', label: 'Logo', type: 'image' },
 			...common
 		]

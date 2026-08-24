@@ -20,6 +20,13 @@ export type Company = BaseDoc & {
 	name: string;
 	role: string;
 	period: string;
+	/** Human-readable span, e.g. "2 yrs 6 mos". Stored, not computed: the
+	 *  period is free text, so deriving this would be guesswork. */
+	duration?: string;
+	employmentType?: string;
+	location?: string;
+	workMode?: string;
+	description?: string;
 	logo?: string;
 	tech: string[];
 	highlights?: string[];
@@ -74,7 +81,20 @@ export type Credential = BaseDoc & {
 	skills?: string[];
 	/** Institution or verification page. Renders the institution as a link. */
 	url?: string;
+	/** Discipline, used by the landing-page filters. Editorial, not derived. */
+	track?: Track;
 };
+
+/**
+ * The filter vocabulary shared by every filterable section.
+ *
+ * Deliberately a small fixed set: a filter is only useful if the same value
+ * means the same thing across credentials, projects and skills, which free
+ * text cannot guarantee.
+ */
+export type Track = 'frontend' | 'backend' | 'devops' | 'mobile' | 'data';
+
+export const TRACKS: Track[] = ['frontend', 'backend', 'devops', 'mobile', 'data'];
 
 export type Extra = BaseDoc & {
 	title: string;

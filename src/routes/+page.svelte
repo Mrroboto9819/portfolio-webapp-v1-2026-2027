@@ -9,6 +9,7 @@
 	import ProjectCard from '$lib/components/ProjectCard.svelte';
 	import CredentialGroup from '$lib/components/CredentialGroup.svelte';
 	import HudPanel from '$lib/components/HudPanel.svelte';
+	import FilterBar from '$lib/components/FilterBar.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 	import AdminShortcut from '$lib/components/AdminShortcut.svelte';
 	import { reveal, revealStagger } from '$lib/motion';
@@ -153,6 +154,37 @@
 		/>
 
 		<div use:reveal>
+			{#if data.filters.trackOptions.length > 1 || data.filters.issuerOptions.length > 1}
+				<div id="track" class="scroll-mt-24">
+					{#if data.filters.trackOptions.length > 1}
+						<FilterBar
+							param="track"
+							label="Discipline"
+							active={data.filters.track}
+							options={data.filters.trackOptions}
+						/>
+					{/if}
+					{#if data.filters.issuerOptions.length > 1}
+						<FilterBar
+							param="issuer"
+							label="Issuer"
+							active={data.filters.issuer}
+							options={data.filters.issuerOptions}
+						/>
+					{/if}
+				</div>
+
+				{#if data.filters.active}
+					<p class="mb-6 font-mono text-xs text-on-surface-variant">
+						Showing <span class="text-primary-container">{data.credentialCount}</span> of
+						{data.filters.totalCredentials} —
+						<a href="/#credentials" class="text-secondary underline underline-offset-4"
+							>clear filters</a
+						>
+					</p>
+				{/if}
+			{/if}
+
 			{#each data.degrees as d (d.id)}
 				<HudPanel class="game-hover mb-4 p-6 md:p-7">
 					<div class="flex flex-wrap items-start justify-between gap-4">

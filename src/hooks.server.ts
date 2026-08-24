@@ -20,6 +20,7 @@ import {
 	sessionCookieOptions
 } from '$lib/server/auth';
 import { consumeRefreshToken, safeEqual } from '$lib/server/sessions';
+import { recordVisit } from '$lib/server/visits';
 
 const ALLOWED_HOSTS = new Set([
 	'pablocabrera.dev',
@@ -146,4 +147,44 @@ const writeGuard: Handle = async ({ event, resolve }) => {
 	return resolve(event);
 };
 
-export const handle = sequence(session, csrfGuard, adminGuard, writeGuard);
+/**
+ * Count public page views.
+ *
+ * Runs LAST in the chain and never blocks the response: the write is fired
+ * without await, and a failure is swallowed. Analytics must not be able to
+ * take the site down or slow it, so a broken Mongo makes the counter wrong,
+ * not the page slow.
+ *
+ * Only real page GETs are counted — not assets, not the API, not the admin,
+ * and not a visitor who opted out.
+ */
+const analytics: Handle = async ({ event, resolve }) => {
+	const response = await resolve(event);
+
+	const { pathname } = event.url;
+	const countable =
+		event.request.method === 'GET' &&
+		response.status < 400 &&
+		!pathname.startsWith('/api/') &&
+		!pathname.startsWith('/admin') &&
+		!pathname.startsWith('/cdn/') &&
+		!pathname.startsWith('/_app/') &&
+		!/\.[a-z0-9]{2,5}$/i.test(pathname) && // assets: .png, .css, .js, .ico …
+		event.cookies.get('analytics') !== 'off';
+
+	if (countable) {
+		void recordVisit({
+			path: pathname,
+			ip: event.getClientAddress(),
+			userAgent: event.request.headers.get('user-agent') ?? '',
+			referrer: event.request.headers.get('referer'),
+			// Cloudflare fronts this deployment and supplies the country; no
+			// geo-IP lookup and no IP retention on our side.
+			country: event.request.headers.get('cf-ipcountry')
+		}).catch(() => {});
+	}
+
+	return response;
+};
+
+export const handle = sequence(session, csrfGuard, adminGuard, writeGuard, analytics);

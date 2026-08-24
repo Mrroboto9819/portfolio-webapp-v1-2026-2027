@@ -35,6 +35,26 @@
 			</span>
 		</div>
 
+		{#if job.employmentType || job.workMode || job.location || job.duration}
+			<div
+				class="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 font-mono text-xs text-outline"
+			>
+				{#if job.duration}<span>{job.duration}</span>{/if}
+				{#if job.employmentType}<span class="text-on-surface-variant">{job.employmentType}</span
+					>{/if}
+				{#if job.workMode}
+					<span class="border border-tertiary-container/40 px-2 py-0.5 text-tertiary-container">
+						{job.workMode}
+					</span>
+				{/if}
+				{#if job.location}<span>{job.location}</span>{/if}
+			</div>
+		{/if}
+
+		{#if job.description}
+			<p class="mt-3 mb-0 text-sm leading-relaxed text-on-surface-variant">{job.description}</p>
+		{/if}
+
 		<div class="mt-3 flex items-center gap-2.5">
 			{#if logo}
 				<img

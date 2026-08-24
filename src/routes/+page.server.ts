@@ -17,7 +17,7 @@ import {
 	social,
 	stats
 } from '$lib/server/repositories';
-import type { Credential, Section, Skill } from '$lib/types';
+import { TRACKS, type Credential, type Section, type Skill, type Track } from '$lib/types';
 
 // The skills collection carries no `group`, so grouping is presentational
 // until it does. Accent per group is design, not data.
@@ -71,20 +71,19 @@ function groupSkills(all: Skill[]) {
 	return grouped;
 }
 
-function groupCredentials(all: Credential[]) {
-	const degrees = all.filter((c) => c.type === 'DEGREE');
+function groupCredentials(certs: Credential[]) {
 	const byIssuer = new Map<string, Credential[]>();
-	for (const c of all.filter((c) => c.type !== 'DEGREE')) {
+	for (const c of certs) {
 		if (!byIssuer.has(c.institution)) byIssuer.set(c.institution, []);
 		byIssuer.get(c.institution)!.push(c);
 	}
 	const groups = [...byIssuer.entries()]
 		.map(([issuer, items]) => ({ issuer, items, logo: items.find((i) => i.image)?.image }))
 		.sort((a, b) => b.items.length - a.items.length);
-	return { degrees, groups };
+	return { groups };
 }
 
-export const load: PageServerLoad = async () => {
+export const load: PageServerLoad = async ({ url }) => {
 	const [me, sectionRows, statList, skillList, projectList, companyList, socialList, credList] =
 		await Promise.all([
 			profile.get(),
@@ -97,7 +96,47 @@ export const load: PageServerLoad = async () => {
 			credentials.list({ activeOnly: true })
 		]);
 
-	const { degrees, groups: credentialGroups } = groupCredentials(credList as Credential[]);
+	// ---- filters -------------------------------------------------------
+	// Read from the query string so a filtered view is a shareable URL: the
+	// exact link can go on a CV and the recruiter sees that slice.
+	const allCreds = credList as Credential[];
+	const certs = allCreds.filter((c) => c.type !== 'DEGREE');
+
+	const trackParam = url.searchParams.get('track');
+	const track: Track | null = TRACKS.includes(trackParam as Track) ? (trackParam as Track) : null;
+
+	const issuerParam = url.searchParams.get('issuer');
+	const issuers = [...new Set(certs.map((c) => c.institution))].sort();
+	const issuer = issuerParam && issuers.includes(issuerParam) ? issuerParam : null;
+
+	const matchesTrack = (c: Credential) => !track || c.track === track;
+	const matchesIssuer = (c: Credential) => !issuer || c.institution === issuer;
+
+	// Faceted counts: each facet counts against the OTHER filter, so the number
+	// on a chip is what you would actually get by clicking it — not a total
+	// that shrinks to zero the moment you click.
+	const trackOptions = TRACKS.map((t) => ({
+		value: t,
+		label: t,
+		count: certs.filter((c) => c.track === t && matchesIssuer(c)).length
+	})).filter((o) => o.count > 0);
+
+	const issuerOptions = issuers
+		.map((i) => ({
+			value: i,
+			label: i,
+			count: certs.filter((c) => c.institution === i && matchesTrack(c)).length
+		}))
+		.filter((o) => o.count > 0);
+
+	const filteredCerts = certs.filter((c) => matchesTrack(c) && matchesIssuer(c));
+	const degrees = allCreds.filter((c) => c.type === 'DEGREE');
+
+	// A degree is not discipline-specific, so it stays visible unless an issuer
+	// filter explicitly excludes it.
+	const visibleDegrees = issuer ? degrees.filter((d) => d.institution === issuer) : degrees;
+
+	const credentialGroups = groupCredentials(filteredCerts).groups;
 
 	return {
 		profile: me,
@@ -111,8 +150,16 @@ export const load: PageServerLoad = async () => {
 		projects: projectList,
 		companies: companyList.map((c, i) => ({ ...c, seniority: SENIORITY[i] ?? 'ENGINEER' })),
 		social: socialList,
-		degrees,
+		degrees: visibleDegrees,
 		credentialGroups,
-		credentialCount: credList.length
+		credentialCount: filteredCerts.length + visibleDegrees.length,
+		filters: {
+			track,
+			issuer,
+			trackOptions,
+			issuerOptions,
+			active: Boolean(track || issuer),
+			totalCredentials: allCreds.length
+		}
 	};
 };
