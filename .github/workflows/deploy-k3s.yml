@@ -112,13 +112,11 @@ jobs:
           TAG: ${{ steps.target.outputs.tag }}
         run: |
           set -euo pipefail
-          # Build tag and push source must be the SAME name. buildah tags the
-          # build `localhost/<repo>:<tag>`; asking it to push
-          # `docker.io/library/<repo>:<tag>` fails with "image not known",
-          # because nothing local carries that name. The archive destination
-          # still declares the fully-qualified name, which is what ctr writes
-          # into containerd and therefore what kubelet resolves against.
-          LOCAL="localhost/${IMAGE_REPO}:${TAG}"
+          # ONE name end to end. The build tags docker.io/library/<repo>:<tag>
+          # deliberately — kubelet canonicalises the manifest's bare
+          # `<repo>:<tag>` to exactly that before looking it up — so the push
+          # must read from the same name. Reading from `localhost/...` failed
+          # with "image not known": nothing was ever tagged that way.
           IMAGE="docker.io/library/${IMAGE_REPO}:${TAG}"
           TAR="/tmp/${IMAGE_REPO}-${TAG}.tar"
 
@@ -132,7 +130,7 @@ jobs:
           # Nothing leaves the machine: buildah writes a tar, ctr reads that tar
           # into the node's containerd over the mounted socket. No registry, no
           # credentials, no network.
-          buildah push "$LOCAL" "docker-archive:${TAR}:${IMAGE}"
+          buildah push "$IMAGE" "docker-archive:${TAR}:${IMAGE}"
           ctr --address "$CONTAINERD_SOCK" -n k8s.io images import "$TAR"
           rm -f "$TAR"
 
@@ -227,6 +225,7 @@ jobs:
         if: always()
         env:
           TARGET: ${{ steps.target.outputs.stage }}
+          APP: ${{ steps.target.outputs.app }}
           WEBHOOK_DC: ${{ secrets.WEBHOOK_DC }}
           STATUS: ${{ job.status }}
           TAG: ${{ steps.target.outputs.tag }}
