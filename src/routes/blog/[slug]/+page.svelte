@@ -2,6 +2,9 @@
 	import Atmosphere from '$lib/components/Atmosphere.svelte';
 	import Nav from '$lib/components/Nav.svelte';
 	import Footer from '$lib/components/Footer.svelte';
+	import MusicPlayer from '$lib/components/MusicPlayer.svelte';
+	import Toaster from '$lib/components/Toaster.svelte';
+	import Seo from '$lib/components/Seo.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -16,18 +19,36 @@
 			: '';
 </script>
 
-<svelte:head>
-	<title>{data.post.title} — Pablo Cabrera</title>
-	<meta name="description" content={data.description} />
-	<meta property="og:title" content={data.post.title} />
-	<meta property="og:description" content={data.description} />
-	<meta property="og:type" content="article" />
-	{#if data.isDraft}<meta name="robots" content="noindex, nofollow" />{/if}
-</svelte:head>
+<Seo
+	title="{data.post.title} — Pablo Cabrera"
+	description={data.description}
+	locale={data.locale}
+	image={data.post.coverImage}
+	type="article"
+	publishedAt={data.post.publishedAt}
+	modifiedAt={data.post.updatedAt}
+	tags={data.post.tags ?? []}
+	noindex={data.isDraft}
+	jsonLd={{
+		'@context': 'https://schema.org',
+		'@type': 'BlogPosting',
+		headline: data.post.title,
+		description: data.description,
+		image: data.post.coverImage,
+		datePublished: data.post.publishedAt,
+		dateModified: data.post.updatedAt ?? data.post.publishedAt,
+		keywords: (data.post.tags ?? []).join(', '),
+		wordCount: (data.post.body ?? '').split(/\s+/).filter(Boolean).length,
+		inLanguage: data.locale,
+		author: { '@type': 'Person', name: 'Pablo Cabrera', url: 'https://pablocabrera.dev' },
+		publisher: { '@type': 'Person', name: 'Pablo Cabrera' }
+	}}
+/>
 
 <div class="crt" aria-hidden="true"></div>
 <Atmosphere />
 <Nav social={data.social} locale={data.locale} songs={data.songs} />
+<Toaster />
 
 <main
 	class="relative z-10 mx-auto min-h-dvh max-w-3xl px-margin-mobile pt-24 pb-20 md:px-margin-desktop"
@@ -86,5 +107,7 @@
 		</ul>
 	{/if}
 </main>
+
+<MusicPlayer songs={data.songs} />
 
 <Footer />

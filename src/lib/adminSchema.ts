@@ -145,7 +145,21 @@ export const SCHEMAS: Record<EntityName, EntitySchema> = {
 		fields: [
 			{ name: 'name', label: 'Name', type: 'text', required: true, column: true },
 			{ name: 'icon', label: 'Icon path', type: 'text', help: 'e.g. /icons/react.svg' },
-			{ name: 'group', label: 'Group', type: 'text', column: true },
+			{
+				name: 'group',
+				label: 'Group',
+				type: 'select',
+				column: true,
+				options: [
+					'Web',
+					'Backend',
+					'Databases',
+					'Mobile & Desktop',
+					'CI/CD & Infra',
+					'Tools & Design'
+				],
+				help: 'Decides which panel it appears under on the landing page.'
+			},
 			...common
 		]
 	},

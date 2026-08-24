@@ -10,7 +10,9 @@
 	const accent = $derived(current ? '#00f3ff' : '#ffabf3');
 </script>
 
-<div class="relative">
+<!-- id is the anchor a work project links to, so clicking "at DokitPro"
+     scrolls to the job it came from. -->
+<div class="relative scroll-mt-24" id="job-{job.id}">
 	<!-- rail node -->
 	<span
 		class="absolute top-9 -left-[41px] hidden h-3 w-3 rotate-45 border md:block"

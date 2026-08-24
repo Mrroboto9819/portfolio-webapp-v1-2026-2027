@@ -28,15 +28,24 @@ import {
 } from '$lib/types';
 import { TRANSLATABLE, localizeRecord, type Locale } from '$lib/i18n';
 
-// Skills carry no `group`, so grouping is presentational until they do.
-const SKILL_GROUPS: { name: string; accent: string; members: string[] }[] = [
-	{
-		name: 'FRONTEND',
-		accent: '#00f3ff',
-		members: ['JAVASCRIPT', 'VUE.JS', 'REACT', 'NEXT', 'NUXT']
-	},
-	{ name: 'BACKEND', accent: '#fe00fe', members: ['NODE.JS', 'PYTHON', 'DJANGO', 'FLASK'] },
-	{ name: 'DATA & INFRA', accent: '#a1f21d', members: ['MONGODB', 'MYSQL', 'DOCKER'] }
+// Accent per group is design, not data — the group itself now lives on each
+// skill record, so adding a technology in the admin places it correctly with
+// no code change.
+const GROUP_ACCENT: Record<string, string> = {
+	Web: '#00f3ff',
+	Backend: '#fe00fe',
+	Databases: '#a1f21d',
+	'Mobile & Desktop': '#ffabf3',
+	'CI/CD & Infra': '#6ff6ff',
+	'Tools & Design': '#8fdb00'
+};
+const GROUP_ORDER = [
+	'Web',
+	'Backend',
+	'Databases',
+	'Mobile & Desktop',
+	'CI/CD & Infra',
+	'Tools & Design'
 ];
 
 const CAREER_START = new Date('2021-11-01');
@@ -58,18 +67,27 @@ const yearsSince = (from: Date) =>
 	Math.floor((Date.now() - from.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
 
 function groupSkills(all: Skill[]) {
-	const byName = new Map(all.map((s) => [s.name.toUpperCase(), s]));
-	const grouped = SKILL_GROUPS.map((g) => ({
-		name: g.name,
-		accent: g.accent,
-		items: g.members.map((m) => byName.get(m)).filter((s): s is Skill => Boolean(s))
-	})).filter((g) => g.items.length > 0);
+	const byGroup = new Map<string, Skill[]>();
+	for (const s of all) {
+		// A skill with no group is still shown, under "Other" — never dropped
+		// just because someone forgot to set the field.
+		const key = s.group?.trim() || 'Other';
+		if (!byGroup.has(key)) byGroup.set(key, []);
+		byGroup.get(key)!.push(s);
+	}
 
-	// Anything the map doesn't mention is still shown, never silently dropped.
-	const placed = new Set(grouped.flatMap((g) => g.items.map((s) => s.id)));
-	const rest = all.filter((s) => !placed.has(s.id));
-	if (rest.length) grouped.push({ name: 'OTHER', accent: '#849495', items: rest });
-	return grouped;
+	return [...byGroup.entries()]
+		.map(([name, items]) => ({
+			name: name.toUpperCase(),
+			accent: GROUP_ACCENT[name] ?? '#849495',
+			items
+		}))
+		.sort((a, b) => {
+			// Known groups keep the declared order; anything new falls to the end.
+			const ia = GROUP_ORDER.findIndex((g) => g.toUpperCase() === a.name);
+			const ib = GROUP_ORDER.findIndex((g) => g.toUpperCase() === b.name);
+			return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+		});
 }
 
 type JoinedCred = Credential & {
@@ -225,11 +243,26 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		skillGroups: groupSkills(skillList as Skill[]),
 		// Work projects resolve their company name through companyId, so the card
 		// can say "at Alluxi" without duplicating the name on every project.
-		projects: projectList.map((r) => {
-			const localized = L(r, 'projects');
-			const company = r.companyId ? companyList.find((c) => c.id === r.companyId) : undefined;
-			return { ...localized, companyName: company?.name };
-		}),
+		// Ordered so the page reads as a career: this site first, then the rest of
+		// the personal work, then client work grouped by employer in the same
+		// order the timeline uses — most recent job first.
+		projects: projectList
+			.map((r) => {
+				const localized = L(r, 'projects');
+				const idx = r.companyId ? companyList.findIndex((c) => c.id === r.companyId) : -1;
+				return {
+					...localized,
+					companyName: idx >= 0 ? companyList[idx].name : undefined,
+					companyOrder: idx >= 0 ? idx : -1
+				};
+			})
+			.sort((a, b) => {
+				// 0 = this site, 1 = other personal, 2+ = client work by employer.
+				const rank = (p: typeof a) =>
+					p.name === 'PORTAFOLIO_2026' ? 0 : p.context === 'work' ? 2 + p.companyOrder : 1;
+				const d = rank(a) - rank(b);
+				return d !== 0 ? d : (a.order ?? 0) - (b.order ?? 0);
+			}),
 		// The badge is a stored field, not a guess from row order. Empty means no
 		// badge — an ordering accident should never label someone "JUNIOR".
 		companies: companyList.map((c) => L(c, 'companies')),

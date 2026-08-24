@@ -14,6 +14,7 @@
 	import AdminShortcut from '$lib/components/AdminShortcut.svelte';
 	import MusicPlayer from '$lib/components/MusicPlayer.svelte';
 	import Toaster from '$lib/components/Toaster.svelte';
+	import Seo from '$lib/components/Seo.svelte';
 	import { reveal, revealStagger } from '$lib/motion';
 	import { ui } from '$lib/i18n';
 	import type { PageData } from './$types';
@@ -47,19 +48,32 @@
 	]);
 </script>
 
-<svelte:head>
-	<title>Pablo Cabrera — Full Stack Engineer</title>
-	<meta
-		name="description"
-		content="Pablo Cabrera — fullstack engineer. Vue, React, Django, Node. Portfolio, experience and projects."
-	/>
-	<meta property="og:title" content="Pablo Cabrera — Full Stack Engineer" />
-	<meta
-		property="og:description"
-		content="Fullstack engineer building web platforms end to end — Vue, React, Django, Node."
-	/>
-	<meta property="og:type" content="website" />
-</svelte:head>
+<Seo
+	title="{data.profile.displayName} — {data.profile.headline?.replace(/\n/g, ' ')}"
+	description={data.profile.bio}
+	locale={data.locale}
+	image={data.profile.avatar}
+	type="profile"
+	jsonLd={{
+		'@context': 'https://schema.org',
+		'@type': 'Person',
+		name: data.profile.displayName,
+		jobTitle: data.profile.headline?.replace(/\n/g, ' '),
+		description: data.profile.bio,
+		url: 'https://pablocabrera.dev',
+		image: data.profile.avatar,
+		sameAs: data.social.filter((s) => s.url?.startsWith('http')).map((s) => s.url),
+		knowsAbout: data.skillGroups.flatMap((g) => g.items.map((i) => i.name)),
+		worksFor: data.companies.map((c) => ({ '@type': 'Organization', name: c.name })),
+		hasCredential: data.credentialGroups.flatMap((g) =>
+			g.items.map((c) => ({
+				'@type': 'EducationalOccupationalCredential',
+				name: c.title,
+				recognizedBy: { '@type': 'Organization', name: g.issuer }
+			}))
+		)
+	}}
+/>
 
 <AdminShortcut />
 <Toaster />

@@ -651,3 +651,39 @@
 		transition: none;
 	}
 }
+
+/* ============================================================
+   Effects opt-out
+   One class on <html> disables every atmosphere layer, so the
+   preference lives in CSS rather than in a flag threaded through
+   every component. Layout is untouched — only motion and overlays.
+   ============================================================ */
+.no-fx .atmos-grid,
+.no-fx .atmos-scanlines,
+.no-fx .atmos-noise,
+.no-fx .atmos-sweep,
+.no-fx .crt::before {
+	display: none !important;
+}
+
+.no-fx .glitch-hover:hover {
+	animation: none !important;
+}
+
+.no-fx .glow,
+.no-fx .glow-hero,
+.no-fx .glow-brand {
+	text-shadow: none !important;
+}
+
+/* Hover lift and sweeps stay static, but borders still respond so the
+   interface does not stop giving feedback. */
+.no-fx .game-hover:hover {
+	transform: none !important;
+	box-shadow: none !important;
+}
+
+.no-fx .caret::after,
+.no-fx .animate-pulse {
+	animation: none !important;
+}

@@ -38,7 +38,32 @@ const BRANDS: Record<string, Brand> = {
 	STRIPE: { color: '#635BFF' },
 	GITHUB: { color: '#181717', onDark: '#FFFFFF' },
 	LINKEDIN: { color: '#0A66C2', onDark: '#3E93DA' },
-	EMAIL: { color: '#EA4335' }
+	EMAIL: { color: '#EA4335' },
+
+	// --- added from the full stack list ---
+	SASS: { color: '#CC6699' },
+	PUG: { color: '#A86454' },
+	EXPRESS: { color: '#000000', onDark: '#FFFFFF' },
+	FASTAPI: { color: '#009688' },
+	'.NET': { color: '#512BD4', onDark: '#7B5BE8' },
+	DOTNET: { color: '#512BD4', onDark: '#7B5BE8' },
+	ELECTRON: { color: '#47848F', onDark: '#5FA7B4' },
+	POSTGRESQL: { color: '#4169E1', onDark: '#6C8CEA' },
+	'GITHUB ACTIONS': { color: '#2088FF' },
+	GITHUBACTIONS: { color: '#2088FF' },
+	JENKINS: { color: '#D24939' },
+	KUBERNETES: { color: '#326CE5', onDark: '#5A8EEE' },
+	K3S: { color: '#FFC61C' },
+	'DOCKER COMPOSE': { color: '#2496ED' },
+	LINUX: { color: '#FCC624' },
+	WINDOWS: { color: '#0078D4', onDark: '#3B9BE8' },
+	FIGMA: { color: '#F24E1E' },
+	PHOTOSHOP: { color: '#31A8FF' },
+	RUST: { color: '#000000', onDark: '#FF7043' },
+	GIT: { color: '#F05032' },
+	INSTAGRAM: { color: '#E4405F' },
+	REDIS: { color: '#FF4438' },
+	NGINX: { color: '#009639' }
 };
 
 /**

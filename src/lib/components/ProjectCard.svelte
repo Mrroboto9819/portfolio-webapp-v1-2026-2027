@@ -46,7 +46,17 @@
 		</h3>
 		{#if isWork && project.companyName}
 			<div class="mt-1 font-mono text-xs text-outline">
-				at <span class="text-secondary">{project.companyName}</span>
+				at
+				{#if project.companyId}
+					<a
+						href="#job-{project.companyId}"
+						class="text-secondary underline decoration-secondary/40 underline-offset-4 transition-colors hover:decoration-secondary"
+					>
+						{project.companyName}
+					</a>
+				{:else}
+					<span class="text-secondary">{project.companyName}</span>
+				{/if}
 			</div>
 		{/if}
 	</div>

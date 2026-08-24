@@ -4,6 +4,7 @@
 	import { brandColor } from '$lib/brand';
 	import { gsap } from '$lib/motion';
 	import { player } from '$lib/audio.svelte';
+	import { effects } from '$lib/effects.svelte';
 	import type { Social, Song } from '$lib/types';
 
 	let {
@@ -80,8 +81,11 @@
 		}
 	});
 
-	onMount(() => () => {
-		document.body.style.overflow = '';
+	onMount(() => {
+		effects.init();
+		return () => {
+			document.body.style.overflow = '';
+		};
 	});
 
 	function onKeydown(e: KeyboardEvent) {
@@ -206,6 +210,25 @@
 			</a>
 		{/each}
 	</nav>
+
+	<!-- display preferences -->
+	<div data-oc-item class="shrink-0 border-t border-white/10 px-5 py-4">
+		<label class="flex cursor-pointer items-center justify-between gap-3">
+			<span class="min-w-0">
+				<span class="block font-mono text-xs tracking-[0.1em] text-on-surface uppercase">
+					{effects.enabled ? 'Hide effects' : 'Show effects'}
+				</span>
+				<span class="mt-1 block font-mono text-xs text-outline"> Grid, scanlines, glitch </span>
+			</span>
+			<input
+				type="checkbox"
+				class="cyber-switch"
+				checked={effects.enabled}
+				onchange={() => effects.toggle()}
+				aria-label="Toggle visual effects"
+			/>
+		</label>
+	</div>
 
 	<!-- player transport: the drawer is the only control surface on mobile -->
 	{#if songs.length}
