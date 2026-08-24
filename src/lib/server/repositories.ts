@@ -13,6 +13,7 @@ import type {
 	Credential,
 	EntityName,
 	Extra,
+	Issuer,
 	MetaEntry,
 	Post,
 	Profile,
@@ -42,6 +43,7 @@ class CredentialRepo extends Repository<Credential> {}
 class ExtraRepo extends Repository<Extra> {}
 class StatRepo extends Repository<Stat> {}
 class SectionRepo extends Repository<Section> {}
+class IssuerRepo extends Repository<Issuer> {}
 
 /**
  * The profile singleton.
@@ -169,6 +171,7 @@ export const extras = new ExtraRepo('extras');
 export const stats = new StatRepo('stats');
 export const posts = new PostRepo('posts');
 export const sections = new SectionRepo('sections');
+export const issuers = new IssuerRepo('issuers');
 export const profile = new ProfileRepo('profile');
 
 export { ProfileRepo };
@@ -206,7 +209,8 @@ export const ENTITIES: Record<EntityName, AnyRepository> = {
 	extras,
 	stats,
 	posts,
-	sections
+	sections,
+	issuers
 };
 
 export function isEntityName(name: string): name is EntityName {

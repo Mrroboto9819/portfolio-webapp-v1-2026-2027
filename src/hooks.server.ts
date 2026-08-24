@@ -21,6 +21,7 @@ import {
 } from '$lib/server/auth';
 import { consumeRefreshToken, safeEqual } from '$lib/server/sessions';
 import { recordVisit } from '$lib/server/visits';
+import { LOCALES, resolveLocale } from '$lib/i18n';
 
 const ALLOWED_HOSTS = new Set([
 	'pablocabrera.dev',
@@ -55,6 +56,41 @@ function hostOf(value: string | null): string | null {
  * destroyed by a replay) nothing will ever make it valid again, and the user
  * needs to land on the login page instead of silently half-authenticated.
  */
+/**
+ * Resolve the request locale.
+ *
+ * `?lang=` wins, so a link can pin a language for whoever receives it — the
+ * same reason the filters live in the query string. An explicit choice is
+ * remembered in a cookie; otherwise the browser's Accept-Language decides.
+ *
+ * The rendered <html lang> is rewritten to match, which matters for screen
+ * readers and for the browser's own translation prompt.
+ */
+const locale: Handle = async ({ event, resolve }) => {
+	const param = event.url.searchParams.get('lang');
+	const chosen = resolveLocale({
+		param,
+		cookie: event.cookies.get('lang'),
+		acceptLanguage: event.request.headers.get('accept-language')
+	});
+	event.locals.locale = chosen;
+
+	// Only an explicit ?lang= writes the cookie: a browser-header guess is not
+	// a choice, and persisting it would override the header later.
+	if (param && LOCALES.includes(param as never) && event.cookies.get('lang') !== param) {
+		event.cookies.set('lang', param, {
+			path: '/',
+			maxAge: 60 * 60 * 24 * 365,
+			sameSite: 'lax',
+			httpOnly: false
+		});
+	}
+
+	return resolve(event, {
+		transformPageChunk: ({ html }) => html.replace('%lang%', chosen)
+	});
+};
+
 const session: Handle = async ({ event, resolve }) => {
 	event.locals.session = null;
 	event.locals.sessionExpiresAt = null;
@@ -187,4 +223,4 @@ const analytics: Handle = async ({ event, resolve }) => {
 	return response;
 };
 
-export const handle = sequence(session, csrfGuard, adminGuard, writeGuard, analytics);
+export const handle = sequence(locale, session, csrfGuard, adminGuard, writeGuard, analytics);

@@ -1,8 +1,10 @@
 <script lang="ts">
 	import Offcanvas from './Offcanvas.svelte';
+	import LocaleSwitch from './LocaleSwitch.svelte';
+	import { DEFAULT_LOCALE, type Locale } from '$lib/i18n';
 	import type { Social } from '$lib/types';
 
-	let { social = [] }: { social?: Social[] } = $props();
+	let { social = [], locale = DEFAULT_LOCALE }: { social?: Social[]; locale?: Locale } = $props();
 
 	let menuOpen = $state(false);
 
@@ -43,6 +45,10 @@
 				{link.label}
 			</a>
 		{/each}
+	</div>
+
+	<div class="ml-auto mr-3 flex items-center">
+		<LocaleSwitch current={locale} />
 	</div>
 
 	<!-- burger: every breakpoint, the reference desktop carries one too -->

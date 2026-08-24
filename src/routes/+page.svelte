@@ -61,7 +61,7 @@
 <AdminShortcut />
 <div class="crt" aria-hidden="true"></div>
 <Atmosphere />
-<Nav social={data.social} />
+<Nav social={data.social} locale={data.locale} />
 
 <main
 	id="top"
@@ -158,7 +158,7 @@
 				<div id="track" class="scroll-mt-24">
 					{#if data.filters.trackOptions.length > 1}
 						<FilterBar
-							param="track"
+							param="cert_track"
 							label="Discipline"
 							active={data.filters.track}
 							options={data.filters.trackOptions}
@@ -166,7 +166,7 @@
 					{/if}
 					{#if data.filters.issuerOptions.length > 1}
 						<FilterBar
-							param="issuer"
+							param="cert_issuer"
 							label="Issuer"
 							active={data.filters.issuer}
 							options={data.filters.issuerOptions}
@@ -251,7 +251,13 @@
 
 		<div class="grid grid-cols-1 gap-gutter md:grid-cols-3" use:revealStagger>
 			{#each data.credentialGroups as g (g.issuer)}
-				<CredentialGroup issuer={g.issuer} items={g.items} logo={g.logo} />
+				<CredentialGroup
+					issuer={g.issuer}
+					items={g.items}
+					logo={g.logo}
+					url={g.url}
+					total={g.total}
+				/>
 			{/each}
 		</div>
 	</section>

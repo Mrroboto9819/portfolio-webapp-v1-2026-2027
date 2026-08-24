@@ -1,5 +1,6 @@
 // See https://svelte.dev/docs/kit/types#app.d.ts
 import type { AdminSession } from '$lib/server/auth';
+import type { Locale } from '$lib/i18n';
 
 declare global {
 	namespace App {
@@ -13,6 +14,8 @@ declare global {
 			 * this request (the access token alone does not carry it).
 			 */
 			sessionExpiresAt: Date | null;
+			/** Locale resolved for this request: ?lang=, then cookie, then header. */
+			locale: Locale;
 		}
 		// interface Error {}
 		// interface PageData {}

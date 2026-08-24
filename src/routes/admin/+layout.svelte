@@ -18,9 +18,29 @@
 			style="border-right: 1px solid rgba(0,220,230,0.28)"
 		>
 			<div class="border-b border-white/10 px-5 py-4">
-				<div class="font-mono text-xs tracking-[0.14em] text-secondary uppercase">// ADMIN</div>
-				<div class="mt-1.5 font-mono text-xs text-on-surface">
-					{data.session?.username ?? ''}
+				<div class="mb-3 font-mono text-xs tracking-[0.14em] text-secondary uppercase">
+					// ADMIN
+				</div>
+				<div class="flex items-center gap-3">
+					{#if data.profile?.avatar}
+						<img
+							src={data.profile.avatar}
+							alt=""
+							class="h-9 w-9 shrink-0 border border-primary-container/40 object-cover"
+							loading="lazy"
+						/>
+					{/if}
+					<div class="min-w-0">
+						<div
+							class="truncate font-mono text-xs text-on-surface"
+							title={data.session?.username ?? ''}
+						>
+							{data.profile?.displayName ?? data.session?.username ?? ''}
+						</div>
+						<div class="mt-0.5 font-mono text-xs text-tertiary-container">
+							{data.session?.role ?? ''}
+						</div>
+					</div>
 				</div>
 			</div>
 

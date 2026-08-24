@@ -1,19 +1,25 @@
 <script lang="ts">
-	// Built on the native <dialog>, deliberately.
+	// Built on the native <dialog>, deliberately: showModal() gives focus
+	// trapping, inertness of the page behind, Escape-to-close and correct
+	// screen-reader semantics for free.
 	//
-	// showModal() gives focus trapping, inertness of the page behind, Escape to
-	// close and correct screen-reader semantics for free. A hand-rolled div
-	// re-implements all of that and usually gets the focus trap wrong.
+	// `open` is a PLAIN prop and the parent owns the state. It used to be
+	// $bindable while callers passed a derived expression (`editing !== null`)
+	// and the component assigned back into it — an assignment that cannot
+	// propagate, which is why the dialog never opened. Closing is reported
+	// through onclose instead, so there is exactly one owner of the state.
 	let {
-		open = $bindable(false),
+		open = false,
 		title,
 		size = 'md',
+		onclose,
 		children,
 		footer
 	}: {
 		open?: boolean;
 		title: string;
 		size?: 'md' | 'lg';
+		onclose?: () => void;
 		children: import('svelte').Snippet;
 		footer?: import('svelte').Snippet;
 	} = $props();
@@ -21,9 +27,10 @@
 	let dialog = $state<HTMLDialogElement | null>(null);
 
 	$effect(() => {
-		if (!dialog) return;
-		if (open && !dialog.open) dialog.showModal();
-		else if (!open && dialog.open) dialog.close();
+		const el = dialog;
+		if (!el) return;
+		if (open && !el.open) el.showModal();
+		else if (!open && el.open) el.close();
 	});
 
 	const width = $derived(size === 'lg' ? 'w-[min(94vw,880px)]' : 'w-[min(94vw,620px)]');
@@ -32,11 +39,11 @@
 <dialog
 	bind:this={dialog}
 	class="glass chamfer-tr m-auto max-h-[90dvh] {width} overflow-visible p-0 text-on-surface backdrop:bg-surface-lowest/80 backdrop:backdrop-blur-sm"
-	onclose={() => (open = false)}
+	onclose={() => onclose?.()}
 	onclick={(e) => {
 		// Clicking the backdrop closes. The dialog element itself is the
 		// backdrop's event target, so compare against the content box.
-		if (e.target === dialog) open = false;
+		if (e.target === dialog) onclose?.();
 	}}
 >
 	<div class="flex max-h-[90dvh] flex-col">
@@ -44,7 +51,7 @@
 			<h2 class="m-0 font-mono text-sm tracking-[0.12em] text-secondary uppercase">{title}</h2>
 			<button
 				type="button"
-				onclick={() => (open = false)}
+				onclick={() => onclose?.()}
 				aria-label="Close"
 				class="flex h-8 w-8 items-center justify-center border border-primary-container/40 text-primary-container transition-colors hover:bg-primary-container/10"
 			>

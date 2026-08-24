@@ -70,6 +70,21 @@ export type Social = BaseDoc & {
 	handle?: string;
 };
 
+/**
+ * A certificate issuer — Meta, IBM, Platzi…
+ *
+ * Its own collection rather than a string repeated on every credential: the
+ * logo and link then live in ONE place, so changing Meta's logo is one edit
+ * instead of nine, and a typo cannot silently split an issuer into two.
+ */
+export type Issuer = BaseDoc & {
+	name: string;
+	/** Stable url-safe handle, used in filter links instead of the raw name. */
+	slug: string;
+	logo?: string;
+	url?: string;
+};
+
 export type Credential = BaseDoc & {
 	type: 'DEGREE' | 'CERTIFICATE';
 	title: string;
@@ -83,6 +98,18 @@ export type Credential = BaseDoc & {
 	url?: string;
 	/** Discipline, used by the landing-page filters. Editorial, not derived. */
 	track?: Track;
+	/** FK into `issuers`. `institution` is kept as the display fallback for
+	 *  any row not yet linked, so nothing disappears mid-migration. */
+	issuerId?: string;
+	/**
+	 * Self-reference: the specialisation this course belongs to.
+	 *
+	 * A professional certificate (e.g. Meta React Native) is one credential
+	 * made of several courses. Modelling that as a parent link keeps each
+	 * course a real record — individually credentialed and filterable — while
+	 * letting the page show the structure instead of nine flat siblings.
+	 */
+	parentId?: string;
 };
 
 /**
@@ -176,5 +203,6 @@ export type EntityTypeMap = {
 	extras: Extra;
 	posts: Post;
 	sections: Section;
+	issuers: Issuer;
 };
 export type EntityName = keyof EntityTypeMap;

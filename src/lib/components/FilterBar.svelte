@@ -23,7 +23,10 @@
 		if (value === null || value === active) params.delete(param);
 		else params.set(param, value);
 		const qs = params.toString();
-		return `${page.url.pathname}${qs ? `?${qs}` : ''}#${param}`;
+		// No #hash and data-sveltekit-noscroll on the links: clicking a filter
+		// used to jump the reader to the top of the page, which is exactly what
+		// you do not want when the thing you are filtering is below the fold.
+		return `${page.url.pathname}${qs ? `?${qs}` : ''}`;
 	}
 </script>
 
@@ -32,6 +35,7 @@
 
 	<a
 		href={hrefFor(null)}
+		data-sveltekit-noscroll
 		aria-current={active === null ? 'true' : undefined}
 		class="border px-3 py-1.5 font-mono text-xs tracking-[0.08em] uppercase transition-colors {active ===
 		null
@@ -45,6 +49,7 @@
 		{@const on = active === opt.value}
 		<a
 			href={hrefFor(opt.value)}
+			data-sveltekit-noscroll
 			aria-current={on ? 'true' : undefined}
 			class="border px-3 py-1.5 font-mono text-xs tracking-[0.08em] uppercase transition-colors {on
 				? 'border-primary-container bg-primary-container/10 text-primary-container'

@@ -1,15 +1,15 @@
 // Server load: pull the portfolio from Mongo and shape it for the layout.
 //
-// Everything the landing page renders is data. Copy, section headings,
-// section ORDER and section visibility all come from the database, so the
-// admin changes the page without a deploy. The only thing hardcoded here is
-// the mapping from a section `key` to the component that renders it — that is
-// code, not content.
+// Everything the landing page renders is data — copy, headings, section order
+// and visibility all come from the database, so the admin changes the page
+// without a deploy. The only thing hardcoded is which component a section
+// `key` maps to, which is code rather than content.
 
 import type { PageServerLoad } from './$types';
 import {
 	companies,
 	credentials,
+	issuers as issuerRepo,
 	profile,
 	projects,
 	sections,
@@ -17,10 +17,17 @@ import {
 	social,
 	stats
 } from '$lib/server/repositories';
-import { TRACKS, type Credential, type Section, type Skill, type Track } from '$lib/types';
+import {
+	TRACKS,
+	type Credential,
+	type Issuer,
+	type Section,
+	type Skill,
+	type Track
+} from '$lib/types';
+import { TRANSLATABLE, localizeRecord, type Locale } from '$lib/i18n';
 
-// The skills collection carries no `group`, so grouping is presentational
-// until it does. Accent per group is design, not data.
+// Skills carry no `group`, so grouping is presentational until they do.
 const SKILL_GROUPS: { name: string; accent: string; members: string[] }[] = [
 	{
 		name: 'FRONTEND',
@@ -31,14 +38,9 @@ const SKILL_GROUPS: { name: string; accent: string; members: string[] }[] = [
 	{ name: 'DATA & INFRA', accent: '#a1f21d', members: ['MONGODB', 'MYSQL', 'DOCKER'] }
 ];
 
-// Seniority chips are presentational — the collection stores no seniority.
 const SENIORITY = ['CURRENT', 'SENIOR', 'JUNIOR'];
-
-// First professional role. Periods are free text in Mongo, so parsing them is
-// fragile; this is the single source for the derived experience metric.
 const CAREER_START = new Date('2021-11-01');
 
-// Fallback headings, used only when `sections` is empty (fresh database).
 const DEFAULT_SECTIONS: Pick<Section, 'key' | 'label' | 'sub'>[] = [
 	{ key: 'metrics', label: 'Metrics', sub: '' },
 	{ key: 'work', label: 'Professional Experience', sub: 'Detailed work history' },
@@ -52,9 +54,8 @@ const DEFAULT_SECTIONS: Pick<Section, 'key' | 'label' | 'sub'>[] = [
 	{ key: 'extras', label: 'Personal Interests', sub: '' }
 ];
 
-function yearsSince(from: Date): number {
-	return Math.floor((Date.now() - from.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
-}
+const yearsSince = (from: Date) =>
+	Math.floor((Date.now() - from.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
 
 function groupSkills(all: Skill[]) {
 	const byName = new Map(all.map((s) => [s.name.toUpperCase(), s]));
@@ -71,94 +72,169 @@ function groupSkills(all: Skill[]) {
 	return grouped;
 }
 
-function groupCredentials(certs: Credential[]) {
-	const byIssuer = new Map<string, Credential[]>();
+type JoinedCred = Credential & {
+	issuerSlug?: string;
+	issuerName: string;
+	issuerUrl?: string | null;
+};
+
+type CredNode = JoinedCred & { children: JoinedCred[] };
+
+/**
+ * Group certificates by issuer, nesting course-of-a-specialisation under its
+ * parent.
+ *
+ * A child whose parent is not in the filtered set is promoted to a root rather
+ * than dropped — otherwise filtering by, say, "devops" would silently hide
+ * Version Control just because its parent specialisation is a mobile one.
+ */
+function groupByIssuer(certs: JoinedCred[]) {
+	const present = new Set(certs.map((c) => c.id));
+
+	const roots = certs.filter((c) => !c.parentId || !present.has(c.parentId));
+	const childrenOf = new Map<string, JoinedCred[]>();
 	for (const c of certs) {
-		if (!byIssuer.has(c.institution)) byIssuer.set(c.institution, []);
-		byIssuer.get(c.institution)!.push(c);
+		if (c.parentId && present.has(c.parentId)) {
+			if (!childrenOf.has(c.parentId)) childrenOf.set(c.parentId, []);
+			childrenOf.get(c.parentId)!.push(c);
+		}
 	}
-	const groups = [...byIssuer.entries()]
-		.map(([issuer, items]) => ({ issuer, items, logo: items.find((i) => i.image)?.image }))
-		.sort((a, b) => b.items.length - a.items.length);
-	return { groups };
+
+	const nodes: CredNode[] = roots.map((r) => ({ ...r, children: childrenOf.get(r.id!) ?? [] }));
+
+	const map = new Map<string, CredNode[]>();
+	for (const n of nodes) {
+		const key = n.issuerName;
+		if (!map.has(key)) map.set(key, []);
+		map.get(key)!.push(n);
+	}
+
+	return [...map.entries()]
+		.map(([issuer, items]) => ({
+			issuer,
+			items,
+			// Count courses too, so the header reflects what is really shown.
+			total: items.reduce((n, i) => n + 1 + i.children.length, 0),
+			logo: items.find((i) => i.image)?.image,
+			url: items.find((i) => i.issuerUrl)?.issuerUrl ?? undefined
+		}))
+		.sort((a, b) => b.total - a.total);
 }
 
-export const load: PageServerLoad = async ({ url }) => {
-	const [me, sectionRows, statList, skillList, projectList, companyList, socialList, credList] =
-		await Promise.all([
-			profile.get(),
-			sections.list({ activeOnly: true }),
-			stats.list({ activeOnly: true }),
-			skills.list({ activeOnly: true }),
-			projects.list({ activeOnly: true }),
-			companies.list({ activeOnly: true }),
-			social.list({ activeOnly: true }),
-			credentials.list({ activeOnly: true })
-		]);
+export const load: PageServerLoad = async ({ url, locals }) => {
+	const locale: Locale = locals.locale;
 
-	// ---- filters -------------------------------------------------------
-	// Read from the query string so a filtered view is a shareable URL: the
-	// exact link can go on a CV and the recruiter sees that slice.
+	// Resolve translations on the SERVER so components receive plain strings.
+	// Shipping both languages to the browser and picking there would double the
+	// payload and put the fallback logic in every template.
+	const L = <T extends object>(row: T, entity: string): T =>
+		localizeRecord(row, TRANSLATABLE[entity] ?? [], locale);
+	const [
+		me,
+		sectionRows,
+		statList,
+		skillList,
+		projectList,
+		companyList,
+		socialList,
+		credList,
+		issuerList
+	] = await Promise.all([
+		profile.get(),
+		sections.list({ activeOnly: true }),
+		stats.list({ activeOnly: true }),
+		skills.list({ activeOnly: true }),
+		projects.list({ activeOnly: true }),
+		companies.list({ activeOnly: true }),
+		social.list({ activeOnly: true }),
+		credentials.list({ activeOnly: true }),
+		issuerRepo.list({ activeOnly: true })
+	]);
+
 	const allCreds = credList as Credential[];
-	const certs = allCreds.filter((c) => c.type !== 'DEGREE');
+	const issuerRows = issuerList as Issuer[];
+	const byId = new Map(issuerRows.map((i) => [i.id!, i]));
+	const bySlug = new Map(issuerRows.map((i) => [i.slug, i]));
 
-	const trackParam = url.searchParams.get('track');
+	// Resolve each certificate through the issuer relation, so the logo and
+	// link live in one place: changing Meta's logo is one edit, not nine.
+	const joined: JoinedCred[] = allCreds
+		.filter((c) => c.type !== 'DEGREE')
+		.map((c) => {
+			const iss = c.issuerId ? byId.get(c.issuerId) : undefined;
+			return {
+				...c,
+				issuerSlug: iss?.slug,
+				issuerName: iss?.name ?? c.institution,
+				image: iss?.logo ?? c.image,
+				issuerUrl: iss?.url
+			};
+		});
+
+	// ---- filters: query parameters, not component state ------------------
+	// A filtered view is a shareable URL, so the exact link can go on a CV.
+	// Namespaced `cert_*` so other sections can add filters without colliding.
+	const trackParam = url.searchParams.get('cert_track');
 	const track: Track | null = TRACKS.includes(trackParam as Track) ? (trackParam as Track) : null;
 
-	const issuerParam = url.searchParams.get('issuer');
-	const issuers = [...new Set(certs.map((c) => c.institution))].sort();
-	const issuer = issuerParam && issuers.includes(issuerParam) ? issuerParam : null;
+	// Accepts a slug (readable and stable — what the links use) or a raw id,
+	// so an id-based link keeps working too.
+	const issuerParam = url.searchParams.get('cert_issuer');
+	const activeIssuer = issuerParam ? (bySlug.get(issuerParam) ?? byId.get(issuerParam)) : undefined;
+	const issuerSlug = activeIssuer?.slug ?? null;
 
-	const matchesTrack = (c: Credential) => !track || c.track === track;
-	const matchesIssuer = (c: Credential) => !issuer || c.institution === issuer;
+	const matchesTrack = (c: JoinedCred) => !track || c.track === track;
+	const matchesIssuer = (c: JoinedCred) => !issuerSlug || c.issuerSlug === issuerSlug;
 
-	// Faceted counts: each facet counts against the OTHER filter, so the number
-	// on a chip is what you would actually get by clicking it — not a total
-	// that shrinks to zero the moment you click.
+	// Faceted counts: each facet counts against the OTHER filter, so a chip's
+	// number is what clicking it actually yields.
 	const trackOptions = TRACKS.map((t) => ({
 		value: t,
 		label: t,
-		count: certs.filter((c) => c.track === t && matchesIssuer(c)).length
+		count: joined.filter((c) => c.track === t && matchesIssuer(c)).length
 	})).filter((o) => o.count > 0);
 
-	const issuerOptions = issuers
+	const issuerOptions = issuerRows
 		.map((i) => ({
-			value: i,
-			label: i,
-			count: certs.filter((c) => c.institution === i && matchesTrack(c)).length
+			value: i.slug,
+			label: i.name,
+			count: joined.filter((c) => c.issuerSlug === i.slug && matchesTrack(c)).length
 		}))
-		.filter((o) => o.count > 0);
+		.filter((o) => o.count > 0)
+		.sort((a, b) => b.count - a.count);
 
-	const filteredCerts = certs.filter((c) => matchesTrack(c) && matchesIssuer(c));
-	const degrees = allCreds.filter((c) => c.type === 'DEGREE');
-
-	// A degree is not discipline-specific, so it stays visible unless an issuer
-	// filter explicitly excludes it.
-	const visibleDegrees = issuer ? degrees.filter((d) => d.institution === issuer) : degrees;
-
-	const credentialGroups = groupCredentials(filteredCerts).groups;
+	const filteredCerts = joined.filter((c) => matchesTrack(c) && matchesIssuer(c));
+	// A degree is not discipline-specific, so a discipline filter leaves it
+	// alone; only an issuer filter excludes it.
+	const visibleDegrees = issuerSlug ? [] : allCreds.filter((c) => c.type === 'DEGREE');
 
 	return {
-		profile: me,
-		// Repository.list already sorts by `order`, so reordering in the admin
-		// reorders the page. An empty collection falls back to the built-in set
-		// rather than rendering a bare page.
-		sections: sectionRows.length ? (sectionRows as Section[]) : DEFAULT_SECTIONS,
-		stats: statList,
+		locale,
+		profile: L(me, 'profile'),
+		sections: (sectionRows.length ? (sectionRows as Section[]) : DEFAULT_SECTIONS).map((r) =>
+			L(r, 'sections')
+		),
+		stats: statList.map((r) => L(r, 'stats')),
 		experienceYears: yearsSince(CAREER_START),
 		skillGroups: groupSkills(skillList as Skill[]),
-		projects: projectList,
-		companies: companyList.map((c, i) => ({ ...c, seniority: SENIORITY[i] ?? 'ENGINEER' })),
+		projects: projectList.map((r) => L(r, 'projects')),
+		companies: companyList.map((c, i) =>
+			L({ ...c, seniority: SENIORITY[i] ?? 'ENGINEER' }, 'companies')
+		),
 		social: socialList,
-		degrees: visibleDegrees,
-		credentialGroups,
+		degrees: visibleDegrees.map((r) => L(r, 'credentials')),
+		credentialGroups: groupByIssuer(
+			filteredCerts.map(
+				(r) => L(r as unknown as Record<string, unknown>, 'credentials') as unknown as JoinedCred
+			)
+		),
 		credentialCount: filteredCerts.length + visibleDegrees.length,
 		filters: {
 			track,
-			issuer,
+			issuer: issuerSlug,
 			trackOptions,
 			issuerOptions,
-			active: Boolean(track || issuer),
+			active: Boolean(track || issuerSlug),
 			totalCredentials: allCreds.length
 		}
 	};

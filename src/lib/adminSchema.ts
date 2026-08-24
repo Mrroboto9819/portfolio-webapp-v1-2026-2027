@@ -135,6 +135,12 @@ export const SCHEMAS: Record<EntityName, EntitySchema> = {
 			{ name: 'url', label: 'Link', type: 'text' },
 			{ name: 'credentialId', label: 'Credential ID', type: 'text' },
 			{
+				name: 'parentId',
+				label: 'Part of (parent id)',
+				type: 'text',
+				help: 'Leave blank for a standalone certificate.'
+			},
+			{
 				name: 'track',
 				label: 'Discipline',
 				type: 'select',
@@ -164,6 +170,24 @@ export const SCHEMAS: Record<EntityName, EntitySchema> = {
 			{ name: 'label', label: 'Label', type: 'text', required: true, column: true },
 			{ name: 'value', label: 'Value', type: 'text', required: true, column: true },
 			{ name: 'icon', label: 'Icon path', type: 'text' },
+			...common
+		]
+	},
+	issuers: {
+		label: 'Cert issuers',
+		titleField: 'name',
+		fields: [
+			{ name: 'name', label: 'Name', type: 'text', required: true, column: true },
+			{
+				name: 'slug',
+				label: 'Slug',
+				type: 'text',
+				required: true,
+				column: true,
+				help: 'Used in filter URLs.'
+			},
+			{ name: 'logo', label: 'Logo', type: 'image' },
+			{ name: 'url', label: 'Website', type: 'text' },
 			...common
 		]
 	},
@@ -200,6 +224,7 @@ export const SCHEMAS: Record<EntityName, EntitySchema> = {
 
 export const ENTITY_ORDER: EntityName[] = [
 	'sections',
+	'issuers',
 	'posts',
 	'projects',
 	'companies',

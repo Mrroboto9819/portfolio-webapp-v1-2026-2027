@@ -5,6 +5,7 @@
 	import DataTable from '$lib/components/admin/DataTable.svelte';
 	import Pagination from '$lib/components/admin/Pagination.svelte';
 	import Modal from '$lib/components/admin/Modal.svelte';
+	import HoldButton from '$lib/components/admin/HoldButton.svelte';
 	import FileUpload from '$lib/components/admin/FileUpload.svelte';
 	import type { ActionData, PageData } from './$types';
 
@@ -151,6 +152,7 @@
 <!-- ============ editor modal ============ -->
 <Modal
 	open={editing !== null}
+	onclose={() => (editing = null)}
 	title={editing?.id ? `Edit — ${titleOf(editing)}` : 'New record'}
 	size="lg"
 >
@@ -278,39 +280,69 @@
 </Modal>
 
 <!-- ============ delete confirmation ============ -->
-<Modal open={deleting !== null} title="Confirm delete">
+<Modal open={deleting !== null} onclose={() => (deleting = null)} title="Delete record">
 	{#if deleting}
-		<p class="m-0 text-sm text-on-surface-variant">
-			Delete <strong class="text-on-surface">{titleOf(deleting)}</strong>? This cannot be undone.
-		</p>
+		<div class="flex items-start gap-4">
+			<span class="mt-0.5 shrink-0 text-error">
+				<svg
+					width="26"
+					height="26"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.6"
+					aria-hidden="true"
+				>
+					<path d="M12 3l9 16H3z" /><path d="M12 9v5M12 17h.01" />
+				</svg>
+			</span>
+			<div class="min-w-0">
+				<p class="m-0 text-sm text-on-surface">
+					You are about to permanently delete
+					<strong class="break-words text-error">{titleOf(deleting)}</strong>.
+				</p>
+				<p class="mt-2 mb-0 font-mono text-xs text-on-surface-variant">
+					This removes the record from the database. It cannot be undone, and it will disappear from
+					the live site immediately.
+				</p>
+			</div>
+		</div>
+
+		<form
+			id="delete-form"
+			method="POST"
+			action="?/remove"
+			class="mt-6"
+			use:enhance={() =>
+				async ({ update }) => {
+					await update();
+					deleting = null;
+					await invalidateAll();
+				}}
+		>
+			<input type="hidden" name="id" value={deleting.id ?? ''} />
+		</form>
 	{/if}
+
 	{#snippet footer()}
-		<div class="flex justify-end gap-3">
+		<div class="flex flex-col gap-3 sm:flex-row sm:items-center">
 			<button
 				type="button"
 				onclick={() => (deleting = null)}
-				class="clip-corner border border-outline/50 px-6 py-2.5 font-mono text-xs tracking-[0.1em] text-on-surface-variant uppercase hover:bg-white/5"
+				class="clip-corner border border-outline/50 px-6 py-3 font-mono text-xs tracking-[0.1em] text-on-surface-variant uppercase hover:bg-white/5 sm:w-40"
 			>
 				Cancel
 			</button>
-			<form
-				method="POST"
-				action="?/remove"
-				use:enhance={() =>
-					async ({ update }) => {
-						await update();
-						deleting = null;
-						await invalidateAll();
-					}}
-			>
-				<input type="hidden" name="id" value={deleting?.id ?? ''} />
-				<button
-					type="submit"
-					class="clip-corner border border-error bg-error/10 px-6 py-2.5 font-mono text-xs font-bold tracking-[0.1em] text-error uppercase hover:bg-error/20"
-				>
-					Delete
-				</button>
-			</form>
+			<div class="flex-1">
+				<HoldButton
+					label="Hold to delete"
+					confirmLabel="Keep holding…"
+					doneLabel="Deleting…"
+					duration={1400}
+					onconfirm={() =>
+						(document.getElementById('delete-form') as HTMLFormElement)?.requestSubmit()}
+				/>
+			</div>
 		</div>
 	{/snippet}
 </Modal>
