@@ -20,6 +20,8 @@ class Player {
 	duration = $state(0);
 
 	#el: HTMLAudioElement | null = null;
+	/** True once the listener pressed play; cleared only by an explicit pause. */
+	#wantsPlayback = false;
 
 	current = $derived(this.queue[this.index] ?? null);
 	progress = $derived(this.duration > 0 ? this.position / this.duration : 0);
@@ -40,27 +42,61 @@ class Player {
 		el.addEventListener('ended', () => this.next());
 		el.addEventListener('play', () => (this.playing = true));
 		el.addEventListener('pause', () => (this.playing = false));
-		// A dead URL must not leave the UI stuck showing "playing".
-		el.addEventListener('error', () => (this.playing = false));
+		// A dead URL must not end the set. If playback was asked for, step to the
+		// next track; only give up once nothing in the queue can play.
+		el.addEventListener('error', () => {
+			this.playing = false;
+			if (this.#wantsPlayback) this.playAt(this.index + 1, 1);
+		});
 		this.#el = el;
 		return el;
 	}
 
-	async playAt(i: number) {
+	/**
+	 * Play the track at `i`.
+	 *
+	 * The index wraps in BOTH directions, which is what makes the queue endless:
+	 * `ended` advances, the last track wraps to the first, and playback only
+	 * stops when the listener pauses.
+	 *
+	 * `attempt` counts how many tracks have been skipped after a load failure.
+	 * One dead URL must not end the set — but a queue where nothing plays must
+	 * not spin forever either, so the walk stops after a full pass.
+	 */
+	async playAt(i: number, attempt = 0) {
 		if (!this.queue.length) return;
 		this.index = ((i % this.queue.length) + this.queue.length) % this.queue.length;
 		const el = this.#audio();
 		const song = this.queue[this.index];
 		if (!el || !song) return;
 
+		this.#wantsPlayback = true;
+
 		if (el.src !== new URL(song.url, location.origin).href) {
 			el.src = song.url;
 			this.position = 0;
+		} else if (el.ended) {
+			// Single-track queue, or replaying the same track: rewind explicitly
+			// rather than relying on play() to seek an ended element for us.
+			el.currentTime = 0;
 		}
+
 		try {
 			await el.play();
-		} catch {
-			// Autoplay refused, or the file failed to load. Reflect reality.
+		} catch (err) {
+			// A browser refusing autoplay is NOT a broken track — it wants a user
+			// gesture. Skipping on that would churn the whole queue silently.
+			if (err instanceof DOMException && err.name === 'NotAllowedError') {
+				this.#wantsPlayback = false;
+				this.playing = false;
+				return;
+			}
+			// A media failure: move past it.
+			if (attempt + 1 < this.queue.length) {
+				await this.playAt(this.index + 1, attempt + 1);
+				return;
+			}
+			this.#wantsPlayback = false;
 			this.playing = false;
 		}
 	}
@@ -68,8 +104,13 @@ class Player {
 	async toggle() {
 		const el = this.#audio();
 		if (!el) return;
-		if (this.playing) el.pause();
-		else await this.playAt(this.index);
+		if (this.playing) {
+			// An explicit pause is the only thing that ends continuous playback.
+			this.#wantsPlayback = false;
+			el.pause();
+		} else {
+			await this.playAt(this.index);
+		}
 	}
 
 	next() {
@@ -100,6 +141,7 @@ class Player {
 	}
 
 	stop() {
+		this.#wantsPlayback = false;
 		this.#el?.pause();
 		this.playing = false;
 	}

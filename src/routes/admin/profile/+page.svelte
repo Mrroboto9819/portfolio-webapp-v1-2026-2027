@@ -11,7 +11,9 @@
 	// without this effect the editor would keep showing the pre-save copy.
 	// Re-seed only when the server's updatedAt actually changes, so typing is
 	// never clobbered mid-edit.
-	let rows = $state<MetaEntry[]>(structuredClone(data.profile.metadata ?? []));
+	let rows = $state<MetaEntry[]>(
+		(data.profile.metadata ?? []).map((r) => ({ ...r, accent: r.accent ?? '' }))
+	);
 	let avatar = $state(data.profile.avatar ?? '');
 	let saving = $state(false);
 	let syncedAt = $state(data.profile.updatedAt);
@@ -19,10 +21,12 @@
 	$effect(() => {
 		if (data.profile.updatedAt === syncedAt) return;
 		syncedAt = data.profile.updatedAt;
-		rows = structuredClone(data.profile.metadata ?? []);
+		rows = (data.profile.metadata ?? []).map((r) => ({ ...r, accent: r.accent ?? '' }));
 		avatar = data.profile.avatar ?? '';
 	});
 
+	// accent is optional on the model but must be a string here: bind:value
+	// against undefined is the same trap as the upload fields.
 	const addRow = () => (rows = [...rows, { key: '', value: '', accent: '' }]);
 	const removeRow = (i: number) => (rows = rows.filter((_, n) => n !== i));
 	const move = (i: number, by: number) => {

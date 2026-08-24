@@ -31,17 +31,25 @@
 	const columns = $derived(data.schema.fields.filter((f) => f.column));
 	const titleOf = (row: Row) => String(row[data.schema.titleField] ?? '(untitled)');
 
+	// Every upload field must hold a STRING before the modal renders.
+	// `bind:value` against an undefined entry throws props_invalid_value —
+	// FileUpload's `value` is $bindable with a '' fallback — and that throw
+	// happens during render, so the modal never appears at all.
+	function seedUploads(row: Row): Record<string, string> {
+		return Object.fromEntries(
+			data.schema.fields
+				.filter((f) => f.type === 'image' || f.type === 'audio')
+				.map((f) => [f.name, String(row[f.name] ?? '')])
+		);
+	}
+
 	function openNew() {
 		editing = { isActive: true };
-		uploads = {};
+		uploads = seedUploads({});
 	}
 	function openEdit(row: Row) {
 		editing = row;
-		uploads = Object.fromEntries(
-			data.schema.fields
-				.filter((f) => f.type === 'image')
-				.map((f) => [f.name, String(row[f.name] ?? '')])
-		);
+		uploads = seedUploads(row);
 	}
 
 	function valueFor(row: Row | null, name: string, type: string): string {

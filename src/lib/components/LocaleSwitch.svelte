@@ -6,7 +6,13 @@
 
 	// A link, not a click handler: ?lang= is what pins the language, so the
 	// switch produces a URL that behaves the same for whoever receives it.
-	// data-sveltekit-noscroll keeps the reader where they were.
+	//
+	// data-sveltekit-reload forces a FULL document navigation rather than a
+	// client-side one. The locale is resolved in hooks and the <html lang>
+	// attribute is written by transformPageChunk, which only runs on a server
+	// render — a client-side navigation would patch the body while leaving the
+	// document language (and anything the server computed from it) stale, which
+	// is exactly the "I have to reload by hand" symptom.
 	function hrefFor(l: Locale): string {
 		const params = new URLSearchParams(page.url.searchParams);
 		params.set('lang', l);
@@ -19,7 +25,7 @@
 		{@const on = l === current}
 		<a
 			href={hrefFor(l)}
-			data-sveltekit-noscroll
+			data-sveltekit-reload
 			hreflang={l}
 			aria-label={LOCALE_NAME[l]}
 			aria-current={on ? 'true' : undefined}
