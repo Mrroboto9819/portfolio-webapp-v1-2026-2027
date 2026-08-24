@@ -144,7 +144,7 @@ jobs:
           set -euo pipefail
           kubectl -n "$APP_NS" set image \
             "deployment/$APP" "$CONTAINER=${IMAGE_REPO}:${TAG}"
-          kubectl -n "$APP_NS" rollout status "deployment/$APP" --timeout=300s
+          kubectl -n "$APP_NS" rollout status "deployment/$APP" --timeout=420s
 
       - name: Smoke test
         env:
@@ -166,8 +166,32 @@ jobs:
         env:
           APP: ${{ steps.target.outputs.app }}
         run: |
-          echo "Deploy failed — rolling ${APP} back to the previous revision."
-          kubectl -n "$APP_NS" rollout undo "deployment/$APP" || true
+          set -uo pipefail
+          # Only roll back to a revision that can actually run.
+          #
+          # `rollout undo` blindly reverts to the previous revision, and on a
+          # freshly applied manifest that revision is the placeholder
+          # `:latest` — an image no node has, so the rollback itself produces
+          # ErrImageNeverPull and takes the deployment down harder than the
+          # failure did. This checks the target image exists on the node first
+          # and otherwise leaves the running pod alone.
+          PREV=$(kubectl -n "$APP_NS" rollout history "deployment/$APP" --revision=0 2>/dev/null \
+            | tail -2 | head -1 | awk '{print $1}')
+          IMG=$(kubectl -n "$APP_NS" rollout history "deployment/$APP" --revision="${PREV:-0}" 2>/dev/null \
+            | grep -oE 'portfolio-webapp:[^ ]+' | head -1)
+
+          if [ -z "$IMG" ] || [ "$IMG" = "${IMAGE_REPO}:latest" ]; then
+            echo "No usable previous revision (${IMG:-none}); leaving the current pod running."
+            exit 0
+          fi
+
+          if ! ctr --address "$CONTAINERD_SOCK" -n k8s.io images ls -q | grep -q "$IMG"; then
+            echo "Previous image $IMG is not present on this node; not rolling back."
+            exit 0
+          fi
+
+          echo "Rolling ${APP} back to ${IMG}."
+          kubectl -n "$APP_NS" set image "deployment/$APP" "$CONTAINER=$IMG"
           kubectl -n "$APP_NS" rollout status "deployment/$APP" --timeout=180s || true
 
       - name: Done
