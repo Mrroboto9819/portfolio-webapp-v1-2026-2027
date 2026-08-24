@@ -501,3 +501,92 @@
 	text-transform: uppercase;
 	color: var(--color-primary-container);
 }
+
+/* ============================================================
+   Admin modal transitions
+   The entry runs after showModal(); the exit must FINISH before
+   close() is called, because close() hides the element instantly.
+   Modal.svelte holds close() back for the duration below.
+   ============================================================ */
+@keyframes dc-modal-in {
+	from {
+		opacity: 0;
+		transform: translateY(10px) scale(0.97);
+		clip-path: inset(0 0 100% 0);
+	}
+	60% {
+		clip-path: inset(0 0 0 0);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+		clip-path: inset(0 0 0 0);
+	}
+}
+
+@keyframes dc-modal-out {
+	from {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+	to {
+		opacity: 0;
+		transform: translateY(6px) scale(0.985);
+	}
+}
+
+@keyframes dc-backdrop-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+.dc-modal[open] {
+	animation: dc-modal-in 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.dc-modal[open]::backdrop {
+	animation: dc-backdrop-in 220ms ease-out;
+}
+.dc-modal.dc-closing {
+	animation: dc-modal-out 180ms ease-in forwards;
+}
+.dc-modal.dc-closing::backdrop {
+	animation: dc-backdrop-in 180ms ease-in reverse forwards;
+}
+
+/* A single scanline sweeps the panel as it opens — the HUD equivalent of a
+   window drawing itself, rather than a generic fade. */
+.dc-modal[open]::after {
+	content: '';
+	position: absolute;
+	inset-inline: 0;
+	top: 0;
+	height: 2px;
+	background: linear-gradient(90deg, transparent, var(--color-primary-container), transparent);
+	animation: dc-scan 420ms ease-out 60ms both;
+	pointer-events: none;
+}
+
+@keyframes dc-scan {
+	from {
+		top: 0;
+		opacity: 1;
+	}
+	to {
+		top: 100%;
+		opacity: 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.dc-modal[open],
+	.dc-modal.dc-closing,
+	.dc-modal[open]::backdrop,
+	.dc-modal.dc-closing::backdrop,
+	.dc-modal[open]::after {
+		animation: none;
+	}
+}

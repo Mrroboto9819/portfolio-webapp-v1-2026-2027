@@ -7,6 +7,7 @@
 	import Modal from '$lib/components/admin/Modal.svelte';
 	import HoldButton from '$lib/components/admin/HoldButton.svelte';
 	import FileUpload from '$lib/components/admin/FileUpload.svelte';
+	import { LOCALES, LOCALE_LABEL, TRANSLATABLE, t } from '$lib/i18n';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -47,7 +48,21 @@
 		const v = row?.[name];
 		if (v === undefined || v === null) return '';
 		if (type === 'list') return Array.isArray(v) ? v.join(', ') : String(v);
+		if (typeof v === 'object') return t(v as never, 'en');
 		return String(v);
+	}
+
+	// Fields this entity stores per language. The editor shows one input per
+	// locale for these; everything else stays a single input.
+	const translatable = $derived(new Set(TRANSLATABLE[data.entity] ?? []));
+
+	/** Value of one locale of a translatable field. */
+	function localeValue(row: Row | null, name: string, loc: string): string {
+		const v = row?.[name];
+		if (v === undefined || v === null) return '';
+		if (typeof v === 'object') return ((v as Record<string, string>)[loc] ?? '') as string;
+		// Legacy plain string: it is the English copy, so seed EN and leave ES blank.
+		return loc === 'en' ? String(v) : '';
 	}
 
 	// Search round-trips through the URL like sort and paging, so the server
@@ -233,6 +248,35 @@
 								value={valueFor(editing, f.name, f.type)}
 								class="{field} font-mono leading-relaxed"
 							></textarea>
+						{:else if translatable.has(f.name)}
+							<!-- One input per language. The save action reassembles them
+							     into { en, es }; a blank locale simply falls back. -->
+							<div class="flex flex-col gap-2">
+								{#each LOCALES as loc (loc)}
+									<div class="flex items-start gap-2">
+										<span
+											class="mt-2.5 w-7 shrink-0 font-mono text-xs tracking-[0.1em] text-outline"
+										>
+											{LOCALE_LABEL[loc]}
+										</span>
+										{#if f.type === 'textarea'}
+											<textarea
+												name="{f.name}__{loc}"
+												rows="3"
+												value={localeValue(editing, f.name, loc)}
+												class="{field} flex-1"
+											></textarea>
+										{:else}
+											<input
+												name="{f.name}__{loc}"
+												type="text"
+												value={localeValue(editing, f.name, loc)}
+												class="{field} flex-1"
+											/>
+										{/if}
+									</div>
+								{/each}
+							</div>
 						{:else if f.type === 'textarea'}
 							<textarea
 								id={f.name}

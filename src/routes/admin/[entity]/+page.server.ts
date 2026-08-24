@@ -1,6 +1,7 @@
 import { error, fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { SCHEMAS, coerce, searchFieldsFor } from '$lib/adminSchema';
+import { LOCALES, TRANSLATABLE } from '$lib/i18n';
 import { getRepo, isEntityName } from '$lib/server/repositories';
 
 function schemaFor(name: string) {
@@ -36,9 +37,24 @@ export const load: PageServerLoad = async ({ params, url }) => {
 async function patchFrom(request: Request, entity: string) {
 	const form = await request.formData();
 	const { fields } = SCHEMAS[entity as keyof typeof SCHEMAS];
+	const translatable = new Set(TRANSLATABLE[entity] ?? []);
 	const patch: Record<string, unknown> = {};
 
 	for (const field of fields) {
+		// Translatable fields arrive as name__en / name__es and are reassembled
+		// into { en, es }. A locale left blank is omitted rather than stored as
+		// an empty string, so `t()` falls back instead of rendering nothing.
+		if (translatable.has(field.name)) {
+			const value: Record<string, string> = {};
+			for (const loc of LOCALES) {
+				const raw = String(form.get(`${field.name}__${loc}`) ?? '').trim();
+				if (raw) value[loc] = raw;
+			}
+			if (Object.keys(value).length) patch[field.name] = value;
+			else patch[field.name] = undefined;
+			continue;
+		}
+
 		const value = coerce(field, form.get(field.name));
 		// A false boolean is a real value, not an omission — an unchecked box
 		// must be written, or a row could never be hidden again.
@@ -53,7 +69,13 @@ export const actions: Actions = {
 		const { patch, id } = await patchFrom(request, entity);
 
 		for (const f of schema.fields) {
-			if (f.required && !patch[f.name]) return fail(400, { message: `${f.label} is required.` });
+			const v = patch[f.name];
+			const empty =
+				v === undefined ||
+				v === null ||
+				v === '' ||
+				(typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0);
+			if (f.required && empty) return fail(400, { message: `${f.label} is required.` });
 		}
 
 		try {

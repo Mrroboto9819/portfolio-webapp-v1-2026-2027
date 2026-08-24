@@ -98,7 +98,7 @@
 
 				<div class="flex grow flex-col gap-6" use:revealStagger={{ each: 0.12 }}>
 					{#each data.companies as job (job.id)}
-						<TimelineItem {job} tag={job.seniority} logo={job.logo} />
+						<TimelineItem {job} tag={job.seniority ?? ''} logo={job.logo} />
 					{/each}
 				</div>
 			</div>
@@ -131,7 +131,7 @@
 			{#if data.projects.length}
 				<div class="grid grid-cols-1 gap-gutter md:grid-cols-3" use:revealStagger>
 					{#each data.projects as p (p.id)}
-						<ProjectCard project={p} />
+						<ProjectCard project={p} locale={data.locale} />
 					{/each}
 				</div>
 			{:else}

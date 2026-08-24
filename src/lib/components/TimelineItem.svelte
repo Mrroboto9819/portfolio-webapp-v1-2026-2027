@@ -2,7 +2,7 @@
 	import HudPanel from './HudPanel.svelte';
 	import type { Company } from '$lib/types';
 
-	let { job, tag, logo }: { job: Company; tag: string; logo?: string } = $props();
+	let { job, tag = '', logo }: { job: Company; tag?: string; logo?: string } = $props();
 
 	// The current role gets the live treatment; past roles are quieter, so the
 	// eye lands on "where he is now" first.
@@ -71,12 +71,16 @@
 				<div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
 					<div class="min-w-0">
 						<div class="mb-1.5 flex flex-wrap items-center gap-2">
-							<span
-								class="border px-2 py-0.5 font-mono text-xs tracking-[0.1em] uppercase"
-								style="color: {accent}; border-color: {accent}55; background: {accent}12"
-							>
-								{tag}
-							</span>
+							<!-- Badge is optional: blank in the admin means no chip at all,
+							     rather than an empty bordered box. -->
+							{#if tag?.trim()}
+								<span
+									class="border px-2 py-0.5 font-mono text-xs tracking-[0.1em] uppercase"
+									style="color: {accent}; border-color: {accent}55; background: {accent}12"
+								>
+									{tag}
+								</span>
+							{/if}
 							{#if current}
 								<span
 									class="inline-flex items-center gap-1.5 font-mono text-xs text-tertiary-container"

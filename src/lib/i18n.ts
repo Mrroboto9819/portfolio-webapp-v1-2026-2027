@@ -60,8 +60,17 @@ export function localizeRecord<T extends object>(
 export const TRANSLATABLE: Record<string, readonly string[]> = {
 	profile: ['headline', 'bio', 'statusLabel'],
 	sections: ['label', 'sub'],
-	companies: ['role', 'description', 'employmentType', 'workMode', 'location', 'duration'],
+	companies: [
+		'role',
+		'description',
+		'employmentType',
+		'workMode',
+		'location',
+		'duration',
+		'seniority'
+	],
 	projects: ['description', 'type'],
+	// note: certificate titles are official names and are NOT translated
 	credentials: ['title', 'field'],
 	extras: ['title', 'description'],
 	stats: ['label'],

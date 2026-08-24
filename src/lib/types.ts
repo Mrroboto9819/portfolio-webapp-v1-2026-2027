@@ -24,6 +24,8 @@ export type Company = BaseDoc & {
 	 *  period is free text, so deriving this would be guesswork. */
 	duration?: string;
 	employmentType?: string;
+	/** Free-text badge (e.g. CURRENT, SENIOR). Empty hides the badge entirely. */
+	seniority?: string;
 	location?: string;
 	workMode?: string;
 	description?: string;
@@ -52,15 +54,37 @@ export type ProjectPlatform = {
 	url: string;
 };
 
+/** Where a project came from: paid work, or built on my own time. */
+export type ProjectContext = 'work' | 'personal';
+
 export type Project = BaseDoc & {
 	name: string;
 	type?: string; // MAIN_QUEST / SIDE_QUEST etc
 	description: string;
 	tech: string[];
 	completed?: boolean;
-	redirect?: string;
 	platforms?: ProjectPlatform[];
 	status?: ProjectStatus;
+
+	/** work | personal. Drives the badge and the projects filter. */
+	context?: ProjectContext;
+	/** FK into `companies` when context is 'work'. Renders "at <Company>". */
+	companyId?: string;
+
+	/**
+	 * Three link cases, deliberately separate fields rather than one `redirect`:
+	 *   1. public repo    → repoUrl, shown as "Source"
+	 *   2. private repo   → repoPrivate + releaseUrl, shown as "Download"
+	 *   3. running demo   → liveUrl, shown as "Open"
+	 * A project can have any combination, including none — client work usually
+	 * has none, and a card with no links must still render cleanly.
+	 */
+	repoUrl?: string;
+	repoPrivate?: boolean;
+	releaseUrl?: string;
+	liveUrl?: string;
+	/** Legacy single link, migrated into liveUrl. */
+	redirect?: string;
 };
 
 export type Social = BaseDoc & {

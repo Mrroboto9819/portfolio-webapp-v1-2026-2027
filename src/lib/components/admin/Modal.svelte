@@ -25,20 +25,49 @@
 	} = $props();
 
 	let dialog = $state<HTMLDialogElement | null>(null);
+	let closing = $state(false);
+	let timer: ReturnType<typeof setTimeout>;
 
+	const EXIT_MS = 180;
+
+	const reduced = () =>
+		typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+	// dialog.close() hides the element immediately, so an exit animation has to
+	// finish BEFORE close() is called — otherwise it is never seen. The entry is
+	// the opposite: showModal() first, then animate from a starting state.
 	$effect(() => {
 		const el = dialog;
 		if (!el) return;
-		if (open && !el.open) el.showModal();
-		else if (!open && el.open) el.close();
+		clearTimeout(timer);
+
+		if (open) {
+			closing = false;
+			if (!el.open) el.showModal();
+			return;
+		}
+
+		if (!el.open) return;
+		if (reduced()) {
+			el.close();
+			return;
+		}
+		closing = true;
+		timer = setTimeout(() => {
+			closing = false;
+			el.close();
+		}, EXIT_MS);
 	});
+
+	$effect(() => () => clearTimeout(timer));
 
 	const width = $derived(size === 'lg' ? 'w-[min(94vw,880px)]' : 'w-[min(94vw,620px)]');
 </script>
 
 <dialog
 	bind:this={dialog}
-	class="glass chamfer-tr m-auto max-h-[90dvh] {width} overflow-visible p-0 text-on-surface backdrop:bg-surface-lowest/80 backdrop:backdrop-blur-sm"
+	class="dc-modal glass chamfer-tr m-auto max-h-[90dvh] {width} overflow-visible p-0 text-on-surface backdrop:bg-surface-lowest/80 backdrop:backdrop-blur-sm"
+	class:dc-closing={closing}
 	onclose={() => onclose?.()}
 	onclick={(e) => {
 		// Clicking the backdrop closes. The dialog element itself is the

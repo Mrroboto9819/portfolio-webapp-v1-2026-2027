@@ -38,7 +38,6 @@ const SKILL_GROUPS: { name: string; accent: string; members: string[] }[] = [
 	{ name: 'DATA & INFRA', accent: '#a1f21d', members: ['MONGODB', 'MYSQL', 'DOCKER'] }
 ];
 
-const SENIORITY = ['CURRENT', 'SENIOR', 'JUNIOR'];
 const CAREER_START = new Date('2021-11-01');
 
 const DEFAULT_SECTIONS: Pick<Section, 'key' | 'label' | 'sub'>[] = [
@@ -217,10 +216,16 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		stats: statList.map((r) => L(r, 'stats')),
 		experienceYears: yearsSince(CAREER_START),
 		skillGroups: groupSkills(skillList as Skill[]),
-		projects: projectList.map((r) => L(r, 'projects')),
-		companies: companyList.map((c, i) =>
-			L({ ...c, seniority: SENIORITY[i] ?? 'ENGINEER' }, 'companies')
-		),
+		// Work projects resolve their company name through companyId, so the card
+		// can say "at Alluxi" without duplicating the name on every project.
+		projects: projectList.map((r) => {
+			const localized = L(r, 'projects');
+			const company = r.companyId ? companyList.find((c) => c.id === r.companyId) : undefined;
+			return { ...localized, companyName: company?.name };
+		}),
+		// The badge is a stored field, not a guess from row order. Empty means no
+		// badge — an ordering accident should never label someone "JUNIOR".
+		companies: companyList.map((c) => L(c, 'companies')),
 		social: socialList,
 		degrees: visibleDegrees.map((r) => L(r, 'credentials')),
 		credentialGroups: groupByIssuer(

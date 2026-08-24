@@ -33,36 +33,25 @@
 		Pablo Cabrera
 	</a>
 
-	<!-- inline links: desktop only -->
-	<div
-		class="hidden items-center gap-8 font-mono text-sm font-bold tracking-[0.1em] uppercase lg:flex"
-	>
-		{#each links.slice(0, 5) as link (link.href)}
-			<a
-				href={link.href}
-				class="px-2 py-1 text-on-surface-variant/70 transition-colors hover:bg-primary-container/5 hover:text-primary-container"
-			>
-				{link.label}
-			</a>
-		{/each}
-	</div>
-
-	<div class="ml-auto mr-3 flex items-center">
+	<!-- Brand, language, menu. Nothing else: the inline link row collided with
+	     the brand on narrow desktops and duplicated the drawer, which is now
+	     the single navigation surface at every width. -->
+	<div class="flex items-center gap-3">
 		<LocaleSwitch current={locale} />
-	</div>
 
-	<!-- burger: every breakpoint, the reference desktop carries one too -->
-	<button
-		type="button"
-		class="group flex h-10 w-10 flex-col items-center justify-center gap-[5px] border border-primary-container/40 text-primary-container transition-colors hover:bg-primary-container/10"
-		onclick={() => (menuOpen = true)}
-		aria-label="Open menu"
-		aria-expanded={menuOpen}
-	>
-		<span class="block h-px w-5 bg-current transition-all group-hover:w-4"></span>
-		<span class="block h-px w-5 bg-current"></span>
-		<span class="block h-px w-5 bg-current transition-all group-hover:w-3"></span>
-	</button>
+		<!-- burger: every breakpoint, the reference desktop carries one too -->
+		<button
+			type="button"
+			class="group flex h-10 w-10 flex-col items-center justify-center gap-[5px] border border-primary-container/40 text-primary-container transition-colors hover:bg-primary-container/10"
+			onclick={() => (menuOpen = true)}
+			aria-label="Open menu"
+			aria-expanded={menuOpen}
+		>
+			<span class="block h-px w-5 bg-current transition-all group-hover:w-4"></span>
+			<span class="block h-px w-5 bg-current"></span>
+			<span class="block h-px w-5 bg-current transition-all group-hover:w-3"></span>
+		</button>
+	</div>
 </nav>
 
 <Offcanvas bind:open={menuOpen} {links} {social} />

@@ -38,6 +38,12 @@
 		const v = row[f.name];
 		if (v === undefined || v === null || v === '') return '—';
 		if (f.type === 'list') return Array.isArray(v) ? v.join(', ') : String(v);
+		// A translatable field is stored as { en, es }. String() on that yields
+		// "[object Object]" — show the English value (or whichever exists).
+		if (typeof v === 'object') {
+			const l = v as { en?: string; es?: string };
+			return l.en || l.es || '—';
+		}
 		return String(v);
 	}
 </script>

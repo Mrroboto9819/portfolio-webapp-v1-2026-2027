@@ -75,7 +75,38 @@ export const SCHEMAS: Record<EntityName, EntitySchema> = {
 			{ name: 'type', label: 'Type', type: 'text', column: true, help: 'e.g. MAIN_QUEST' },
 			{ name: 'description', label: 'Description', type: 'textarea', required: true },
 			{ name: 'tech', label: 'Tech', type: 'list' },
-			{ name: 'redirect', label: 'Link', type: 'text' },
+			{
+				name: 'context',
+				label: 'Context',
+				type: 'select',
+				options: ['personal', 'work'],
+				column: true
+			},
+			{
+				name: 'companyId',
+				label: 'Company id',
+				type: 'text',
+				help: 'Only when context is work — links the project to a job.'
+			},
+			{
+				name: 'liveUrl',
+				label: 'Live URL',
+				type: 'text',
+				help: 'A running demo. Shown as "Open".'
+			},
+			{
+				name: 'repoUrl',
+				label: 'Repo URL',
+				type: 'text',
+				help: 'Public repository. Shown as "Source".'
+			},
+			{ name: 'repoPrivate', label: 'Repo is private', type: 'boolean' },
+			{
+				name: 'releaseUrl',
+				label: 'Download URL',
+				type: 'text',
+				help: 'Used when the repo is private. Shown as "Download".'
+			},
 			{ name: 'completed', label: 'Completed', type: 'boolean' },
 			...common
 		]
