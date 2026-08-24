@@ -1,0 +1,22 @@
+# Excluded from the knowledge graph.
+#
+# graphify already skips node_modules, .git and secret-shaped files, and it
+# reads .gitignore — so k8s/, .env and build output are out already. This file
+# removes what is tracked but is not part of understanding the codebase.
+
+# Reference material: design PNGs and prose. Images would go through vision
+# extraction, which is slow and expensive, and tells us nothing about the code.
+docs/
+
+# Static assets: icons, logos, the CV PDF, screenshots. Content, not structure.
+static/
+
+# The graph's own output — never feed it back into itself.
+graphify-out/
+
+# Lockfile: thousands of lines, zero architectural signal.
+bun.lock
+
+# Generated route types
+.svelte-kit/
+build/

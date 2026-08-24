@@ -50,3 +50,7 @@ Thumbs.db
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Knowledge graph output — regenerable, and a stale graph in git is worse
+# than no graph. Rebuild with /graphify (or `graphify update` for changes only).
+graphify-out/
