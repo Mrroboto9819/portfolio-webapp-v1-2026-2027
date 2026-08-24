@@ -89,6 +89,8 @@ jobs:
       - name: Build image
         env:
           TAG: ${{ steps.target.outputs.tag }}
+          # The Dockerfile stage: `stage` for beta, `production` for main.
+          TARGET: ${{ steps.target.outputs.stage }}
         run: |
           set -euo pipefail
           # buildah, not docker: the runner is a pod, and asking it to talk to
@@ -224,6 +226,7 @@ jobs:
         # empty string and the notification would silently vanish.
         if: always()
         env:
+          TARGET: ${{ steps.target.outputs.stage }}
           WEBHOOK_DC: ${{ secrets.WEBHOOK_DC }}
           STATUS: ${{ job.status }}
           TAG: ${{ steps.target.outputs.tag }}
@@ -241,7 +244,7 @@ jobs:
 
           case "$STATUS" in
             success)   COLOR=3066993;  TITLE="✅ Deploy succeeded" ;;
-            failure)   COLOR=15158332; TITLE="❌ Deploy failed — rolled back" ;;
+            failure)   COLOR=15158332; TITLE="❌ Deploy failed" ;;
             cancelled) COLOR=9807270;  TITLE="⚪ Deploy cancelled" ;;
             *)         COLOR=10181046; TITLE="❔ Deploy finished: ${STATUS}" ;;
           esac
@@ -254,7 +257,7 @@ jobs:
           # backslashes or unicode can't produce malformed JSON.
           PAYLOAD=$(jq -n \
             --arg title    "$TITLE" \
-            --arg env      "beta (${TARGET})" \
+            --arg env      "${GITHUB_REF_NAME} (${TARGET})" \
             --arg branch   "${GITHUB_REF_NAME}" \
             --arg commit   "\`${GITHUB_SHA:0:7}\` ${SUBJECT}" \
             --arg image    "${IMAGE_REPO}:${TAG:-unknown}" \
