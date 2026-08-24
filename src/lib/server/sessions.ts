@@ -85,7 +85,12 @@ export async function createSession(
 }
 
 export type ConsumeResult =
-	| { ok: true; token: string; session: { sub: string; username: string; role: string }; expiresAt: Date }
+	| {
+			ok: true;
+			token: string;
+			session: { sub: string; username: string; role: string };
+			expiresAt: Date;
+	  }
 	| { ok: false; reason: 'unknown' | 'expired' | 'replayed' };
 
 /**

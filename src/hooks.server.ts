@@ -76,7 +76,11 @@ const session: Handle = async ({ event, resolve }) => {
 
 	// Rotated successfully: hand the client a fresh pair and carry on as if the
 	// access token had never expired. The user sees no interruption.
-	event.cookies.set(SESSION_COOKIE, await createSessionToken(result.session), sessionCookieOptions());
+	event.cookies.set(
+		SESSION_COOKIE,
+		await createSessionToken(result.session),
+		sessionCookieOptions()
+	);
 	event.cookies.set(REFRESH_COOKIE, result.token, refreshCookieOptions());
 	event.locals.session = result.session;
 	event.locals.sessionExpiresAt = result.expiresAt;

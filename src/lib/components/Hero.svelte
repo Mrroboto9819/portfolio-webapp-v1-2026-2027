@@ -3,9 +3,9 @@
 	import Icon from './Icon.svelte';
 	import { brandColor } from '$lib/brand';
 	import { heroIntro } from '$lib/motion';
-	import type { Social } from '$lib/types';
+	import type { Profile, Social } from '$lib/types';
 
-	let { social }: { social: Social[] } = $props();
+	let { profile, social }: { profile: Profile; social: Social[] } = $props();
 
 	let root: HTMLElement;
 
@@ -14,17 +14,12 @@
 		return () => tl?.kill();
 	});
 
-	const readout = [
-		{ k: 'OPERATOR', v: 'PABLO_CABRERA', accent: false },
-		{ k: 'ROLE', v: 'FULLSTACK_ENGINEER', accent: false },
-		{ k: 'LOCATION', v: 'MEXICO', accent: false }
-	];
-	const stack = [
-		{ k: 'FRONTEND', v: 'VUE / REACT / NUXT' },
-		{ k: 'BACKEND', v: 'DJANGO / NODE / FLASK' },
-		{ k: 'DATA', v: 'MONGODB / MYSQL' },
-		{ k: 'INFRA', v: 'DOCKER / K3S' }
-	];
+	// The readout is whatever the admin put in profile.metadata — Stripe-style
+	// key/value rows, rendered in stored order. No hardcoded stack list.
+	const rows = $derived(profile.metadata ?? []);
+	const emailHref = $derived(social.find((s) => s.name === 'EMAIL')?.url ?? '#credentials');
+	// Headline may carry a line break as a literal "\n" from the editor.
+	const headlineLines = $derived((profile.headline ?? '').split(/\r?\n/).filter(Boolean));
 </script>
 
 <div bind:this={root} class="grid grid-cols-4 gap-gutter md:grid-cols-12">
@@ -35,21 +30,20 @@
 			class="mb-6 flex items-center gap-3 font-mono text-xs font-medium tracking-[0.1em] uppercase"
 		>
 			<span class="inline-block h-2 w-2 animate-pulse rounded-full bg-secondary-container"></span>
-			<span class="text-secondary">&gt;&gt; STATUS: AVAILABLE</span>
+			<span class="text-secondary">&gt;&gt; STATUS: {profile.statusLabel ?? 'AVAILABLE'}</span>
 			<span class="hidden h-px grow bg-secondary/30 sm:block"></span>
-			<span class="text-on-surface-variant/70">v4.0.0</span>
+			<span class="text-on-surface-variant/70">{profile.version ?? ''}</span>
 		</div>
 
 		<h1
 			data-hero="title"
 			class="glitch-hover glow-hero m-0 mb-6 cursor-default text-[32px] leading-[1.1] font-extrabold tracking-[-0.04em] text-primary uppercase md:text-5xl"
 		>
-			Full Stack<br />Engineer
+			{#each headlineLines as line, i (i)}{#if i > 0}<br />{/if}{line}{/each}
 		</h1>
 
 		<p data-hero="copy" class="m-0 mb-8 max-w-xl text-base leading-relaxed text-on-surface-variant">
-			I build web platforms end to end — Vue and React on the front, Django and Node behind them,
-			shipped on Docker. Currently fullstack at DOKITPRO, previously ALLUXI and I20VEINTE.
+			{profile.bio}
 		</p>
 
 		<div data-hero="cta" class="flex flex-wrap gap-4">
@@ -104,8 +98,8 @@
 
 				<div class="mb-5 flex items-center gap-4">
 					<img
-						src="/yo.webp"
-						alt="Pablo Cabrera"
+						src={profile.avatar ?? '/yo.webp'}
+						alt={profile.displayName}
 						width="64"
 						height="64"
 						class="h-16 w-16 border border-primary-container/40 object-cover"
@@ -113,27 +107,27 @@
 						loading="eager"
 						decoding="async"
 					/>
-					<div class="font-mono text-xs leading-relaxed">
-						<div class="text-on-surface">PABLO_CABRERA</div>
-						<div class="text-tertiary-container">STATUS: SYNCED</div>
+					<div class="min-w-0 font-mono text-xs leading-relaxed">
+						<div class="truncate text-on-surface">{profile.displayName}</div>
+						<div class="text-tertiary-container">STATUS: {profile.statusLabel ?? 'SYNCED'}</div>
 					</div>
 				</div>
 
-				<div class="flex flex-col gap-3 font-mono text-xs leading-relaxed">
-					{#each readout as row (row.k)}
-						<div data-hero="row" class="flex justify-between gap-4">
-							<span class="text-outline">{row.k}</span>
-							<span class="text-on-surface">{row.v}</span>
-						</div>
-					{/each}
-					<div class="rule my-1"></div>
-					{#each stack as row (row.k)}
-						<div data-hero="row" class="flex justify-between gap-4">
-							<span class="text-outline">{row.k}</span>
-							<span class="text-right text-primary-container">{row.v}</span>
-						</div>
-					{/each}
-				</div>
+				{#if rows.length}
+					<div class="flex flex-col gap-3 font-mono text-xs leading-relaxed">
+						{#each rows as row (row.key)}
+							<div data-hero="row" class="flex justify-between gap-4">
+								<span class="shrink-0 text-outline">{row.key}</span>
+								<span
+									class="min-w-0 text-right break-words"
+									style="color: {row.accent ?? 'var(--color-on-surface)'}"
+								>
+									{row.value}
+								</span>
+							</div>
+						{/each}
+					</div>
+				{/if}
 			</div>
 		</div>
 	</div>

@@ -117,13 +117,7 @@ export type Profile = BaseDoc & {
  * reordered or hidden from the admin without a deploy. `key` maps to the
  * renderer; it is a fixed vocabulary, not free text.
  */
-export type SectionKey =
-	| 'metrics'
-	| 'work'
-	| 'skills'
-	| 'projects'
-	| 'credentials'
-	| 'extras';
+export type SectionKey = 'metrics' | 'work' | 'skills' | 'projects' | 'credentials' | 'extras';
 
 export type Section = BaseDoc & {
 	key: SectionKey;

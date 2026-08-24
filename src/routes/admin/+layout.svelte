@@ -35,6 +35,16 @@
 				>
 					Overview
 				</a>
+				<a
+					href="/admin/profile"
+					class="border-l-2 px-5 py-2.5 font-mono text-xs tracking-[0.1em] uppercase transition-colors hover:text-primary-container"
+					class:border-secondary-container={page.url.pathname === '/admin/profile'}
+					class:text-secondary-container={page.url.pathname === '/admin/profile'}
+					class:border-transparent={page.url.pathname !== '/admin/profile'}
+					class:text-outline={page.url.pathname !== '/admin/profile'}
+				>
+					Profile
+				</a>
 				{#each ENTITY_ORDER as name (name)}
 					{@const activeRow = page.url.pathname === `/admin/${name}`}
 					<a

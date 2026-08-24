@@ -18,6 +18,11 @@
 
 	const ACCENTS = ['#00f3ff', '#ffabf3', '#a1f21d'];
 
+	// Look a section up by key so a block can read its admin-set heading.
+	// Returns null when the admin has hidden or removed the section, which is
+	// how a block disappears from the page.
+	const sectionFor = (key: string) => data.sections.find((s) => s.key === key) ?? null;
+
 	// Stored stats first, then the derived experience metric so the row reads
 	// as three across — see CAREER_START in +page.server.ts.
 	const metrics = $derived([
@@ -61,9 +66,11 @@
 	id="top"
 	class="relative z-10 mx-auto min-h-screen max-w-(--container-max) px-margin-mobile pt-20 pb-16 md:px-margin-desktop md:pt-24 md:pb-20"
 >
-	<Hero social={data.social} />
+	<Hero profile={data.profile} social={data.social} />
 
 	<!-- ================= METRICS ================= -->
+	<!-- Sections render in the order `sections` returns them, with the admin's
+	     own headings. `key` picks the block; everything else is data. -->
 	<section
 		class="mt-14 grid grid-cols-1 gap-gutter sm:grid-cols-2 md:mt-16 md:grid-cols-3"
 		use:revealStagger={{ each: 0.1 }}
@@ -74,59 +81,68 @@
 	</section>
 
 	<!-- ================= WORK ================= -->
-	<section id="work" class="mt-20 scroll-mt-24 md:mt-24">
-		<SectionHeading title="Professional Experience" sub="Detailed work history" />
+	{#if sectionFor('work')}
+		{@const sec = sectionFor('work')!}
+		<section id="work" class="mt-20 scroll-mt-24 md:mt-24">
+			<SectionHeading title={sec.label} sub={sec.sub ?? ''} />
 
-		<div class="md:flex md:gap-8">
-			<!-- rail: the active segment glows -->
-			<div class="relative ml-2 hidden w-px shrink-0 bg-white/10 md:block">
-				<div
-					class="absolute top-0 left-0 h-56 w-px bg-primary-dim"
-					style="box-shadow: 0 0 10px rgba(0,220,230,0.6)"
-				></div>
-			</div>
+			<div class="md:flex md:gap-8">
+				<!-- rail: the active segment glows -->
+				<div class="relative ml-2 hidden w-px shrink-0 bg-white/10 md:block">
+					<div
+						class="absolute top-0 left-0 h-56 w-px bg-primary-dim"
+						style="box-shadow: 0 0 10px rgba(0,220,230,0.6)"
+					></div>
+				</div>
 
-			<div class="flex grow flex-col gap-6" use:revealStagger={{ each: 0.12 }}>
-				{#each data.companies as job (job.id)}
-					<TimelineItem {job} tag={job.seniority} logo={job.logo} />
-				{/each}
+				<div class="flex grow flex-col gap-6" use:revealStagger={{ each: 0.12 }}>
+					{#each data.companies as job (job.id)}
+						<TimelineItem {job} tag={job.seniority} logo={job.logo} />
+					{/each}
+				</div>
 			</div>
-		</div>
-	</section>
+		</section>
+	{/if}
 
 	<!-- ================= SKILLS ================= -->
-	<section id="skills" class="mt-20 scroll-mt-24 md:mt-24">
-		<SectionHeading
-			title="Technical Skills"
-			sub="[SYS_MSG] Stack index loaded. Access granted."
-			typed
-			subColor="var(--color-on-surface-variant)"
-		/>
-		<div class="grid grid-cols-1 gap-gutter md:grid-cols-3" use:revealStagger>
-			{#each data.skillGroups as g (g.name)}
-				<SkillGroup name={g.name} accent={g.accent} items={g.items} />
-			{/each}
-		</div>
-	</section>
-
-	<!-- ================= PROJECTS ================= -->
-	<section id="projects" class="mt-20 scroll-mt-24 md:mt-24">
-		<SectionHeading title="Selected Projects" sub="Deployed systems" />
-		{#if data.projects.length}
+	{#if sectionFor('skills')}
+		{@const sec = sectionFor('skills')!}
+		<section id="skills" class="mt-20 scroll-mt-24 md:mt-24">
+			<SectionHeading
+				title={sec.label}
+				sub={sec.sub ?? ''}
+				typed
+				subColor="var(--color-on-surface-variant)"
+			/>
 			<div class="grid grid-cols-1 gap-gutter md:grid-cols-3" use:revealStagger>
-				{#each data.projects as p (p.id)}
-					<ProjectCard project={p} />
+				{#each data.skillGroups as g (g.name)}
+					<SkillGroup name={g.name} accent={g.accent} items={g.items} />
 				{/each}
 			</div>
-		{:else}
-			<HudPanel class="p-8">
-				<p class="m-0 font-mono text-sm text-on-surface-variant">
-					No active projects. Set <code class="text-primary-container">isActive: true</code> on a project
-					to surface it here.
-				</p>
-			</HudPanel>
-		{/if}
-	</section>
+		</section>
+	{/if}
+
+	<!-- ================= PROJECTS ================= -->
+	{#if sectionFor('projects')}
+		{@const sec = sectionFor('projects')!}
+		<section id="projects" class="mt-20 scroll-mt-24 md:mt-24">
+			<SectionHeading title={sec.label} sub={sec.sub ?? ''} />
+			{#if data.projects.length}
+				<div class="grid grid-cols-1 gap-gutter md:grid-cols-3" use:revealStagger>
+					{#each data.projects as p (p.id)}
+						<ProjectCard project={p} />
+					{/each}
+				</div>
+			{:else}
+				<HudPanel class="p-8">
+					<p class="m-0 font-mono text-sm text-on-surface-variant">
+						No active projects. Set <code class="text-primary-container">isActive: true</code> on a project
+						to surface it here.
+					</p>
+				</HudPanel>
+			{/if}
+		</section>
+	{/if}
 
 	<!-- ================= CREDENTIALS ================= -->
 	<section id="credentials" class="mt-20 scroll-mt-24 md:mt-24">

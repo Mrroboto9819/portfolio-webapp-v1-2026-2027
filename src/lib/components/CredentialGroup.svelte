@@ -9,7 +9,13 @@
 	<div class="mb-4 flex items-center justify-between border-b border-white/10 pb-3">
 		<span class="flex items-center gap-2.5">
 			{#if logo}
-				<img src={logo} alt="" class="h-8 w-8 shrink-0 border border-white/10 bg-white/5 object-contain p-1" loading="lazy" decoding="async" />
+				<img
+					src={logo}
+					alt=""
+					class="h-8 w-8 shrink-0 border border-white/10 bg-white/5 object-contain p-1"
+					loading="lazy"
+					decoding="async"
+				/>
 			{/if}
 			<span class="font-mono text-sm font-bold tracking-[0.1em] text-primary-container uppercase">
 				{issuer}

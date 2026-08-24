@@ -38,11 +38,11 @@ Entities: `stats`, `companies`, `skills`, `projects`, `social`, `credentials`, `
 No configuration is committed, and none is baked into the images. Every value
 is injected at run time, so the same artifact runs in every environment:
 
-| environment | source                                        |
-| ----------- | --------------------------------------------- |
-| local       | `.env` / `.env.local` — gitignored             |
-| stage       | Kubernetes Secrets, mounted via `envFrom`      |
-| production  | AWS Secrets Manager / task configuration       |
+| environment | source                                    |
+| ----------- | ----------------------------------------- |
+| local       | `.env` / `.env.local` — gitignored        |
+| stage       | Kubernetes Secrets, mounted via `envFrom` |
+| production  | AWS Secrets Manager / task configuration  |
 
 Variables read by the app: `MONGODB_URI`, `MONGODB_DB`, `JWT_ACCESS_SECRET`,
 `ADMIN_API_TOKEN`, and the `S3_*` group. `ORIGIN` must match the public host or

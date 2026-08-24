@@ -37,7 +37,13 @@
 
 		<div class="mt-3 flex items-center gap-2.5">
 			{#if logo}
-				<img src={logo} alt="" class="h-9 w-9 shrink-0 border border-white/10 bg-white/5 object-contain p-1 md:h-10 md:w-10" loading="lazy" decoding="async" />
+				<img
+					src={logo}
+					alt=""
+					class="h-9 w-9 shrink-0 border border-white/10 bg-white/5 object-contain p-1 md:h-10 md:w-10"
+					loading="lazy"
+					decoding="async"
+				/>
 			{/if}
 			<span class="font-mono text-xs tracking-[0.1em] text-primary-container uppercase">
 				{job.name}
