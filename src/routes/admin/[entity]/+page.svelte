@@ -193,8 +193,13 @@
 
 			{#each data.schema.fields as f (f.name)}
 				<div class="flex flex-col gap-2">
-					{#if f.type === 'image'}
-						<FileUpload bind:value={uploads[f.name]} folder={data.entity} label={f.label} />
+					{#if f.type === 'image' || f.type === 'audio'}
+						<FileUpload
+							bind:value={uploads[f.name]}
+							folder={data.entity}
+							label={f.label}
+							kind={f.type === 'audio' ? 'audio' : 'image'}
+						/>
 						<input type="hidden" name={f.name} value={uploads[f.name] ?? ''} />
 					{:else}
 						<label class="font-mono text-xs tracking-[0.1em] text-outline uppercase" for={f.name}>

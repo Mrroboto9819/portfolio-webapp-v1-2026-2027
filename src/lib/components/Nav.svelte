@@ -1,26 +1,41 @@
 <script lang="ts">
 	import Offcanvas from './Offcanvas.svelte';
 	import LocaleSwitch from './LocaleSwitch.svelte';
-	import { DEFAULT_LOCALE, type Locale } from '$lib/i18n';
-	import type { Social } from '$lib/types';
+	import { ui, DEFAULT_LOCALE, type Locale } from '$lib/i18n';
+	import type { Social, Song } from '$lib/types';
 
-	let { social = [], locale = DEFAULT_LOCALE }: { social?: Social[]; locale?: Locale } = $props();
+	let {
+		social = [],
+		locale = DEFAULT_LOCALE,
+		songs = []
+	}: { social?: Social[]; locale?: Locale; songs?: Song[] } = $props();
 
 	let menuOpen = $state(false);
 
 	// `d` is the row icon in the offcanvas — the reference drawer pairs every
 	// label with one. Labels stay professional; only the chrome is cyberpunk.
-	const links = [
-		{ label: 'ABOUT', href: '#top', d: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z' },
-		{ label: 'WORK', href: '#work', d: 'M3 8h18v12H3zM8 8V5h8v3' },
-		{ label: 'SKILLS', href: '#skills', d: 'M9 3h6v3h3v3h3v6h-3v3h-3v3H9v-3H6v-3H3V9h3V6h3z' },
-		{ label: 'PROJECTS', href: '#projects', d: 'M3 7h6l2 2h10v10H3zM3 7V5h6' },
+	// Labels resolve per locale; hrefs never change, so a shared link keeps
+	// pointing at the same section regardless of the reader's language.
+	const links = $derived([
 		{
-			label: 'CREDENTIALS',
+			label: ui('nav.about', locale),
+			href: '#top',
+			d: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z'
+		},
+		{ label: ui('nav.work', locale), href: '#work', d: 'M3 8h18v12H3zM8 8V5h8v3' },
+		{
+			label: ui('nav.skills', locale),
+			href: '#skills',
+			d: 'M9 3h6v3h3v3h3v6h-3v3h-3v3H9v-3H6v-3H3V9h3V6h3z'
+		},
+		{ label: ui('nav.projects', locale), href: '#projects', d: 'M3 7h6l2 2h10v10H3zM3 7V5h6' },
+		{
+			label: ui('nav.credentials', locale),
 			href: '#credentials',
 			d: 'M12 3l8 4v5c0 4-3.5 7.5-8 9-4.5-1.5-8-5-8-9V7z'
-		}
-	];
+		},
+		{ label: ui('nav.blog', locale), href: '/blog', d: 'M5 3h11l3 3v15H5zM9 8h6M9 12h6M9 16h4' }
+	]);
 </script>
 
 <nav
@@ -54,4 +69,4 @@
 	</div>
 </nav>
 
-<Offcanvas bind:open={menuOpen} {links} {social} />
+<Offcanvas bind:open={menuOpen} {links} {social} {songs} />

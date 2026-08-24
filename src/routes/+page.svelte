@@ -12,7 +12,9 @@
 	import FilterBar from '$lib/components/FilterBar.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 	import AdminShortcut from '$lib/components/AdminShortcut.svelte';
+	import MusicPlayer from '$lib/components/MusicPlayer.svelte';
 	import { reveal, revealStagger } from '$lib/motion';
+	import { ui } from '$lib/i18n';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -61,13 +63,13 @@
 <AdminShortcut />
 <div class="crt" aria-hidden="true"></div>
 <Atmosphere />
-<Nav social={data.social} locale={data.locale} />
+<Nav social={data.social} locale={data.locale} songs={data.songs} />
 
 <main
 	id="top"
 	class="relative z-10 mx-auto min-h-screen max-w-(--container-max) px-margin-mobile pt-20 pb-16 md:px-margin-desktop md:pt-24 md:pb-20"
 >
-	<Hero profile={data.profile} social={data.social} />
+	<Hero profile={data.profile} social={data.social} locale={data.locale} />
 
 	<!-- ================= METRICS ================= -->
 	<!-- Sections render in the order `sections` returns them, with the admin's
@@ -159,7 +161,8 @@
 					{#if data.filters.trackOptions.length > 1}
 						<FilterBar
 							param="cert_track"
-							label="Discipline"
+							label={ui('filter.discipline', data.locale)}
+							locale={data.locale}
 							active={data.filters.track}
 							options={data.filters.trackOptions}
 						/>
@@ -167,7 +170,8 @@
 					{#if data.filters.issuerOptions.length > 1}
 						<FilterBar
 							param="cert_issuer"
-							label="Issuer"
+							label={ui('filter.issuer', data.locale)}
+							locale={data.locale}
 							active={data.filters.issuer}
 							options={data.filters.issuerOptions}
 						/>
@@ -176,10 +180,15 @@
 
 				{#if data.filters.active}
 					<p class="mb-6 font-mono text-xs text-on-surface-variant">
-						Showing <span class="text-primary-container">{data.credentialCount}</span> of
+						{ui('filter.showing', data.locale)}
+						<span class="text-primary-container">{data.credentialCount}</span>
+						{ui('filter.of', data.locale)}
 						{data.filters.totalCredentials} —
-						<a href="/#credentials" class="text-secondary underline underline-offset-4"
-							>clear filters</a
+						<a
+							href="?lang={data.locale}"
+							data-sveltekit-noscroll
+							class="text-secondary underline underline-offset-4"
+							>{ui('filter.clear', data.locale)}</a
 						>
 					</p>
 				{/if}
@@ -262,5 +271,7 @@
 		</div>
 	</section>
 </main>
+
+<MusicPlayer songs={data.songs} />
 
 <Footer />

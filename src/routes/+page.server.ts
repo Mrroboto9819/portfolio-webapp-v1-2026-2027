@@ -15,6 +15,7 @@ import {
 	sections,
 	skills,
 	social,
+	songs,
 	stats
 } from '$lib/server/repositories';
 import {
@@ -137,7 +138,8 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		companyList,
 		socialList,
 		credList,
-		issuerList
+		issuerList,
+		songList
 	] = await Promise.all([
 		profile.get(),
 		sections.list({ activeOnly: true }),
@@ -147,7 +149,8 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 		companies.list({ activeOnly: true }),
 		social.list({ activeOnly: true }),
 		credentials.list({ activeOnly: true }),
-		issuerRepo.list({ activeOnly: true })
+		issuerRepo.list({ activeOnly: true }),
+		songs.list({ activeOnly: true })
 	]);
 
 	const allCreds = credList as Credential[];
@@ -173,12 +176,15 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	// ---- filters: query parameters, not component state ------------------
 	// A filtered view is a shareable URL, so the exact link can go on a CV.
 	// Namespaced `cert_*` so other sections can add filters without colliding.
-	const trackParam = url.searchParams.get('cert_track');
+	// `track`/`issuer` are the pre-rename names. Links using them were already
+	// shared, so they are still honoured rather than silently ignoring a filter
+	// someone put on a CV.
+	const trackParam = url.searchParams.get('cert_track') ?? url.searchParams.get('track');
 	const track: Track | null = TRACKS.includes(trackParam as Track) ? (trackParam as Track) : null;
 
 	// Accepts a slug (readable and stable — what the links use) or a raw id,
 	// so an id-based link keeps working too.
-	const issuerParam = url.searchParams.get('cert_issuer');
+	const issuerParam = url.searchParams.get('cert_issuer') ?? url.searchParams.get('issuer');
 	const activeIssuer = issuerParam ? (bySlug.get(issuerParam) ?? byId.get(issuerParam)) : undefined;
 	const issuerSlug = activeIssuer?.slug ?? null;
 
@@ -209,6 +215,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
 	return {
 		locale,
+		songs: songList,
 		profile: L(me, 'profile'),
 		sections: (sectionRows.length ? (sectionRows as Section[]) : DEFAULT_SECTIONS).map((r) =>
 			L(r, 'sections')

@@ -196,6 +196,22 @@ export type Section = BaseDoc & {
 	sub?: string;
 };
 
+/**
+ * One track in the player's queue.
+ *
+ * The audio file lives in object storage; the database holds only its URL —
+ * same rule as every other upload, so the pod stays disposable and Mongo
+ * never carries binaries.
+ */
+export type Song = BaseDoc & {
+	title: string;
+	artist?: string;
+	/** Public URL of the mp3, e.g. /cdn/portafolio/music/…mp3 */
+	url: string;
+	/** Optional attribution line for royalty-free tracks. */
+	credit?: string;
+};
+
 export type PostStatus = 'draft' | 'published';
 
 export type Post = BaseDoc & {
@@ -228,5 +244,6 @@ export type EntityTypeMap = {
 	posts: Post;
 	sections: Section;
 	issuers: Issuer;
+	songs: Song;
 };
 export type EntityName = keyof EntityTypeMap;

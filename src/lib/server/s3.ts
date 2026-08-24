@@ -9,7 +9,8 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { env } from '$env/dynamic/private';
 
-export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8 MB
+export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8 MB — images, PDFs
+export const MAX_AUDIO_BYTES = 24 * 1024 * 1024; // 24 MB — a few minutes of mp3
 
 // An explicit allowlist, not a blocklist. The bucket is served publicly, so
 // anything accepted here is served to every visitor — SVG is deliberately
@@ -20,7 +21,11 @@ export const ALLOWED_TYPES: Record<string, string> = {
 	'image/webp': 'webp',
 	'image/avif': 'avif',
 	'image/gif': 'gif',
-	'application/pdf': 'pdf'
+	'application/pdf': 'pdf',
+	// Audio for the player queue. mp3 only: it is what browsers play
+	// universally, and a narrow list is the point of an allowlist.
+	'audio/mpeg': 'mp3',
+	'audio/mp3': 'mp3'
 };
 
 export function storageConfigured(): boolean {
@@ -59,8 +64,12 @@ export type UploadResult = { url: string; key: string; size: number; type: strin
 export async function uploadObject(file: File, folder = 'uploads'): Promise<UploadResult> {
 	const ext = ALLOWED_TYPES[file.type];
 	if (!ext) throw new Error(`Unsupported file type: ${file.type || 'unknown'}`);
-	if (file.size > MAX_UPLOAD_BYTES) {
-		throw new Error(`File is ${(file.size / 1048576).toFixed(1)} MB; the limit is 8 MB`);
+	// Audio gets a larger ceiling than an image would ever need.
+	const limit = ext === 'mp3' ? MAX_AUDIO_BYTES : MAX_UPLOAD_BYTES;
+	if (file.size > limit) {
+		throw new Error(
+			`File is ${(file.size / 1048576).toFixed(1)} MB; the limit is ${limit / 1048576} MB`
+		);
 	}
 	if (file.size === 0) throw new Error('File is empty');
 

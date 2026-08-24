@@ -11,6 +11,7 @@ export type FieldType =
 	| 'textarea'
 	| 'markdown'
 	| 'image' // uploads to object storage, stores the returned URL
+	| 'audio' // same, for mp3 files
 	| 'number'
 	| 'boolean'
 	| 'date'
@@ -204,6 +205,22 @@ export const SCHEMAS: Record<EntityName, EntitySchema> = {
 			...common
 		]
 	},
+	songs: {
+		label: 'Music',
+		titleField: 'title',
+		fields: [
+			{ name: 'title', label: 'Title', type: 'text', required: true, column: true },
+			{ name: 'artist', label: 'Artist', type: 'text', column: true },
+			{ name: 'url', label: 'Audio file', type: 'audio', required: true },
+			{
+				name: 'credit',
+				label: 'Attribution',
+				type: 'text',
+				help: 'Required by most royalty-free licences.'
+			},
+			...common
+		]
+	},
 	issuers: {
 		label: 'Cert issuers',
 		titleField: 'name',
@@ -255,6 +272,7 @@ export const SCHEMAS: Record<EntityName, EntitySchema> = {
 
 export const ENTITY_ORDER: EntityName[] = [
 	'sections',
+	'songs',
 	'issuers',
 	'posts',
 	'projects',
@@ -285,6 +303,7 @@ export function coerce(field: Field, raw: FormDataEntryValue | null): unknown {
 		case 'boolean':
 			return value === 'on' || value === 'true';
 		case 'image':
+		case 'audio':
 			return value.trim() === '' ? undefined : value.trim();
 		case 'list':
 			return value

@@ -21,6 +21,7 @@ import type {
 	Project,
 	Skill,
 	Social,
+	Song,
 	Stat
 } from '$lib/types';
 
@@ -44,6 +45,7 @@ class ExtraRepo extends Repository<Extra> {}
 class StatRepo extends Repository<Stat> {}
 class SectionRepo extends Repository<Section> {}
 class IssuerRepo extends Repository<Issuer> {}
+class SongRepo extends Repository<Song> {}
 
 /**
  * The profile singleton.
@@ -172,6 +174,7 @@ export const stats = new StatRepo('stats');
 export const posts = new PostRepo('posts');
 export const sections = new SectionRepo('sections');
 export const issuers = new IssuerRepo('issuers');
+export const songs = new SongRepo('songs');
 export const profile = new ProfileRepo('profile');
 
 export { ProfileRepo };
@@ -210,7 +213,8 @@ export const ENTITIES: Record<EntityName, AnyRepository> = {
 	stats,
 	posts,
 	sections,
-	issuers
+	issuers,
+	songs
 };
 
 export function isEntityName(name: string): name is EntityName {

@@ -4,8 +4,18 @@
 	let {
 		value = $bindable(''),
 		folder = 'uploads',
-		label = 'Image'
-	}: { value?: string; folder?: string; label?: string } = $props();
+		label = 'Image',
+		kind = 'image'
+	}: { value?: string; folder?: string; label?: string; kind?: 'image' | 'audio' } = $props();
+
+	const accept = $derived(
+		kind === 'audio'
+			? 'audio/mpeg,audio/mp3'
+			: 'image/png,image/jpeg,image/webp,image/avif,image/gif,application/pdf'
+	);
+	const hint = $derived(
+		kind === 'audio' ? 'MP3 · max 24 MB' : 'PNG, JPEG, WebP, AVIF, GIF or PDF · max 8 MB'
+	);
 
 	let input = $state<HTMLInputElement | null>(null);
 	let busy = $state(false);
@@ -45,13 +55,16 @@
 	<span class="font-mono text-xs tracking-[0.1em] text-outline uppercase">{label}</span>
 
 	<div class="flex items-start gap-3">
-		{#if value}
+		{#if value && kind === 'image'}
 			<img
 				src={value}
 				alt=""
 				class="h-16 w-16 shrink-0 border border-white/10 object-cover"
 				loading="lazy"
 			/>
+		{:else if value && kind === 'audio'}
+			<!-- Audible preview: the only way to confirm the right file uploaded. -->
+			<audio controls preload="none" src={value} class="h-10 w-56 shrink-0"></audio>
 		{/if}
 
 		<div class="min-w-0 flex-1">
@@ -77,14 +90,18 @@
 				}}
 			>
 				<span class="font-mono text-xs text-on-surface-variant">
-					{busy ? 'Uploading…' : 'Drop an image here, or click to choose'}
+					{busy
+						? 'Uploading…'
+						: kind === 'audio'
+							? 'Drop an MP3 here, or click to choose'
+							: 'Drop an image here, or click to choose'}
 				</span>
 			</div>
 
 			<input
 				bind:this={input}
 				type="file"
-				accept="image/png,image/jpeg,image/webp,image/avif,image/gif,application/pdf"
+				{accept}
 				class="hidden"
 				onchange={(e) => {
 					const f = e.currentTarget.files?.[0];

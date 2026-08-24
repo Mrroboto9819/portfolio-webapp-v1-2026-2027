@@ -3,17 +3,26 @@
 	import Icon from './Icon.svelte';
 	import { brandColor } from '$lib/brand';
 	import { gsap } from '$lib/motion';
-	import type { Social } from '$lib/types';
+	import { player } from '$lib/audio.svelte';
+	import type { Social, Song } from '$lib/types';
 
 	let {
 		open = $bindable(false),
 		links,
-		social = []
+		social = [],
+		songs = []
 	}: {
 		open?: boolean;
 		links: { label: string; href: string; d: string }[];
 		social?: Social[];
+		songs?: Song[];
 	} = $props();
+
+	// Same shared player as the floating widget — one audio element, two
+	// surfaces. Mobile has no floating pill, so this is its only transport.
+	$effect(() => {
+		if (songs.length) player.load(songs);
+	});
 
 	let panel: HTMLElement;
 	let scrim: HTMLElement;
@@ -195,8 +204,65 @@
 		{/each}
 	</nav>
 
+	<!-- player transport: the drawer is the only control surface on mobile -->
+	{#if songs.length}
+		<div data-oc-item class="mt-auto border-t border-white/10 px-5 py-4">
+			<div class="mb-2.5 flex items-center justify-between">
+				<span class="font-mono text-xs tracking-[0.14em] text-secondary uppercase">// AUDIO</span>
+				<span class="flex h-3 items-end gap-[2px]" aria-hidden="true">
+					{#each [0, 1, 2, 3] as b (b)}
+						<span
+							class="w-[2px] bg-primary-container"
+							style="height: {player.playing ? 100 : 25}%; {player.playing
+								? `animation: oc-eq 900ms ${b * 120}ms ease-in-out infinite alternate`
+								: ''}"
+						></span>
+					{/each}
+				</span>
+			</div>
+
+			<div class="mb-3 truncate font-mono text-xs text-on-surface">
+				{player.current?.title ?? '—'}
+				{#if player.current?.artist}
+					<span class="text-outline">· {player.current.artist}</span>
+				{/if}
+			</div>
+
+			<div class="flex items-center gap-2">
+				<button
+					type="button"
+					onclick={() => player.prev()}
+					aria-label="Previous track"
+					class="border border-outline/40 p-2 text-on-surface-variant hover:border-primary-container hover:text-primary-container"
+				>
+					<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"
+						><path d="M6 5h2v14H6zm3 7l9-7v14z" /></svg
+					>
+				</button>
+				<button
+					type="button"
+					onclick={() => player.toggle()}
+					aria-label={player.playing ? 'Pause' : 'Play'}
+					class="flex-1 border border-primary-container/60 bg-primary-container/10 py-2 font-mono text-xs tracking-[0.12em] text-primary-container uppercase hover:bg-primary-container/20"
+				>
+					{player.playing ? 'Pause' : 'Play'}
+				</button>
+				<button
+					type="button"
+					onclick={() => player.next()}
+					aria-label="Next track"
+					class="border border-outline/40 p-2 text-on-surface-variant hover:border-primary-container hover:text-primary-container"
+				>
+					<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"
+						><path d="M16 5h2v14h-2zM6 5l9 7-9 7z" /></svg
+					>
+				</button>
+			</div>
+		</div>
+	{/if}
+
 	<!-- footer: social + primary action -->
-	<div class="mt-auto border-t border-white/10 px-5 py-4">
+	<div class="{songs.length ? '' : 'mt-auto'} border-t border-white/10 px-5 py-4">
 		{#if social.length}
 			<div data-oc-item class="mb-4 flex flex-wrap gap-4">
 				{#each social as s (s.id)}
@@ -223,3 +289,14 @@
 		</a>
 	</div>
 </div>
+
+<style>
+	@keyframes oc-eq {
+		from {
+			height: 25%;
+		}
+		to {
+			height: 100%;
+		}
+	}
+</style>

@@ -2,10 +2,15 @@
 	import { onMount } from 'svelte';
 	import Icon from './Icon.svelte';
 	import { brandColor } from '$lib/brand';
+	import { ui, DEFAULT_LOCALE, type Locale } from '$lib/i18n';
 	import { heroIntro } from '$lib/motion';
 	import type { Profile, Social } from '$lib/types';
 
-	let { profile, social }: { profile: Profile; social: Social[] } = $props();
+	let {
+		profile,
+		social,
+		locale = DEFAULT_LOCALE
+	}: { profile: Profile; social: Social[]; locale?: Locale } = $props();
 
 	let root: HTMLElement;
 
@@ -51,14 +56,14 @@
 				href="#projects"
 				class="clip-corner bg-primary-container px-7 py-3.5 font-mono text-xs font-bold tracking-[0.1em] text-surface uppercase transition-colors hover:bg-primary-fixed"
 			>
-				View Projects
+				{ui('cta.projects', locale)}
 			</a>
 			{#if social.length}
 				<a
 					href={social.find((s) => s.name === 'EMAIL')?.url ?? '#credentials'}
 					class="clip-corner border border-primary-container px-7 py-3.5 font-mono text-xs tracking-[0.1em] text-primary-container uppercase transition-colors hover:bg-primary-container/10"
 				>
-					Get In Touch
+					{ui('cta.contact', locale)}
 				</a>
 			{/if}
 		</div>

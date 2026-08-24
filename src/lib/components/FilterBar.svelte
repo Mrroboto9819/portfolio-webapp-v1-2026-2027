@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { ui, DEFAULT_LOCALE, type Locale } from '$lib/i18n';
 
 	// Filters are links that set a query parameter, not client-side state.
 	//
@@ -10,12 +11,14 @@
 		param,
 		options,
 		active,
-		label
+		label,
+		locale = DEFAULT_LOCALE
 	}: {
 		param: string;
 		options: { value: string; label: string; count?: number }[];
 		active: string | null;
 		label: string;
+		locale?: Locale;
 	} = $props();
 
 	function hrefFor(value: string | null): string {
@@ -42,7 +45,7 @@
 			? 'border-primary-container bg-primary-container/10 text-primary-container'
 			: 'border-outline/40 text-outline hover:border-primary-container hover:text-primary-container'}"
 	>
-		All
+		{ui('filter.all', locale)}
 	</a>
 
 	{#each options as opt (opt.value)}
