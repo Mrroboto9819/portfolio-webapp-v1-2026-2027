@@ -35,6 +35,14 @@ type ServerFields = {
 	updatedAt: Date;
 };
 
+export type Paged<E> = {
+	items: E[];
+	total: number;
+	page: number;
+	perPage: number;
+	pages: number;
+};
+
 // Read-only surface — handed to public list endpoints.
 export interface Listable<E> {
 	list(opts?: { activeOnly?: boolean }): Promise<E[]>;
@@ -79,6 +87,58 @@ export class Repository<E extends BaseDoc> implements Mutable<E> {
 		const filter: Filter<Document> = opts.activeOnly ? { isActive: { $ne: false } } : {};
 		const docs = await col.find(filter, { sort: { order: 1, _id: 1 } }).toArray();
 		return docs.map((d) => this.shape(d));
+	}
+
+	/**
+	 * Page through a collection.
+	 *
+	 * Counting and slicing happen in Mongo, not in the caller: fetching every
+	 * document to slice it in JS works only while collections are small and
+	 * silently becomes the slowest thing on the page once they are not.
+	 */
+	async paginate(
+		opts: {
+			page?: number;
+			perPage?: number;
+			sort?: string;
+			dir?: 'asc' | 'desc';
+			activeOnly?: boolean;
+			search?: string;
+			searchFields?: string[];
+		} = {}
+	): Promise<Paged<E>> {
+		const perPage = Math.min(Math.max(opts.perPage ?? 20, 1), 100);
+		const col = await this.col();
+
+		const filter: Filter<Document> = opts.activeOnly ? { isActive: { $ne: false } } : {};
+
+		// Case-insensitive contains across the named fields. The term is escaped
+		// so a user typing `.` or `(` searches for that character instead of
+		// injecting a regex (or a catastrophically backtracking one).
+		const term = opts.search?.trim();
+		if (term && opts.searchFields?.length) {
+			const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+			filter.$or = opts.searchFields.map((f) => ({ [f]: { $regex: escaped, $options: 'i' } }));
+		}
+
+		const total = await col.countDocuments(filter);
+		const pages = Math.max(1, Math.ceil(total / perPage));
+		// Clamp rather than return an empty page when the caller asks for a page
+		// past the end — e.g. after deleting the last row on page 3.
+		const page = Math.min(Math.max(opts.page ?? 1, 1), pages);
+
+		const sortField = opts.sort || 'order';
+		const sortDir = opts.dir === 'desc' ? -1 : 1;
+
+		const docs = await col
+			.find(filter, {
+				sort: { [sortField]: sortDir, _id: 1 },
+				skip: (page - 1) * perPage,
+				limit: perPage
+			})
+			.toArray();
+
+		return { items: docs.map((d) => this.shape(d)), total, page, perPage, pages };
 	}
 
 	async findById(id: string): Promise<E | null> {

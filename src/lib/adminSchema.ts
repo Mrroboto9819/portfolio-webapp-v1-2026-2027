@@ -10,6 +10,7 @@ export type FieldType =
 	| 'text'
 	| 'textarea'
 	| 'markdown'
+	| 'image' // uploads to object storage, stores the returned URL
 	| 'number'
 	| 'boolean'
 	| 'date'
@@ -60,7 +61,7 @@ export const SCHEMAS: Record<EntityName, EntitySchema> = {
 				column: true
 			},
 			{ name: 'excerpt', label: 'Excerpt', type: 'textarea' },
-			{ name: 'coverImage', label: 'Cover image URL', type: 'text' },
+			{ name: 'coverImage', label: 'Cover image', type: 'image' },
 			{ name: 'tags', label: 'Tags', type: 'list', help: 'Comma separated.' },
 			{ name: 'body', label: 'Body', type: 'markdown', required: true },
 			...common
@@ -86,7 +87,7 @@ export const SCHEMAS: Record<EntityName, EntitySchema> = {
 			{ name: 'name', label: 'Company', type: 'text', required: true, column: true },
 			{ name: 'role', label: 'Role', type: 'text', required: true, column: true },
 			{ name: 'period', label: 'Period', type: 'text', required: true, column: true },
-			{ name: 'logo', label: 'Logo URL', type: 'text' },
+			{ name: 'logo', label: 'Logo', type: 'image' },
 			{ name: 'tech', label: 'Tech', type: 'list' },
 			...common
 		]
@@ -117,7 +118,7 @@ export const SCHEMAS: Record<EntityName, EntitySchema> = {
 			{ name: 'field', label: 'Field', type: 'text' },
 			{ name: 'period', label: 'Period', type: 'text', required: true },
 			{ name: 'url', label: 'Link', type: 'text' },
-			{ name: 'image', label: 'Logo URL', type: 'text' },
+			{ name: 'image', label: 'Logo', type: 'image' },
 			...common
 		]
 	},
@@ -185,6 +186,13 @@ export const ENTITY_ORDER: EntityName[] = [
 	'stats'
 ];
 
+/** Text fields worth searching in the admin list for a given entity. */
+export function searchFieldsFor(entity: EntityName): string[] {
+	return SCHEMAS[entity].fields
+		.filter((f) => (f.type === 'text' || f.type === 'textarea') && f.column)
+		.map((f) => f.name);
+}
+
 /** Turn a submitted FormData value into the type the model expects. */
 export function coerce(field: Field, raw: FormDataEntryValue | null): unknown {
 	const value = typeof raw === 'string' ? raw : '';
@@ -196,6 +204,8 @@ export function coerce(field: Field, raw: FormDataEntryValue | null): unknown {
 		}
 		case 'boolean':
 			return value === 'on' || value === 'true';
+		case 'image':
+			return value.trim() === '' ? undefined : value.trim();
 		case 'list':
 			return value
 				.split(',')

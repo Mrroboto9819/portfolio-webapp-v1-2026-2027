@@ -6,7 +6,7 @@
 // `featured()`) without touching the base.
 
 import type { Document, WithId } from 'mongodb';
-import { Repository } from './repository';
+import { Repository, type Paged } from './repository';
 import type {
 	BaseDoc,
 	Company,
@@ -181,6 +181,15 @@ export { ProfileRepo };
 // concrete repo satisfies.
 export interface AnyRepository {
 	list(opts?: { activeOnly?: boolean }): Promise<BaseDoc[]>;
+	paginate(opts?: {
+		page?: number;
+		perPage?: number;
+		sort?: string;
+		dir?: 'asc' | 'desc';
+		activeOnly?: boolean;
+		search?: string;
+		searchFields?: string[];
+	}): Promise<Paged<BaseDoc>>;
 	findById(id: string): Promise<BaseDoc | null>;
 	create(body: Record<string, unknown>): Promise<BaseDoc>;
 	update(id: string, body: Record<string, unknown>): Promise<BaseDoc | null>;

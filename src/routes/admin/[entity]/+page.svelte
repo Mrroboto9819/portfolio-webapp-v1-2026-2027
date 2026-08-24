@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
+	import { page as pageState } from '$app/state';
+	import DataTable from '$lib/components/admin/DataTable.svelte';
+	import Pagination from '$lib/components/admin/Pagination.svelte';
+	import Modal from '$lib/components/admin/Modal.svelte';
+	import FileUpload from '$lib/components/admin/FileUpload.svelte';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -8,14 +13,33 @@
 	type Row = Record<string, unknown> & { id?: string };
 
 	let editing = $state<Row | null>(null);
+	let deleting = $state<Row | null>(null);
 	let saving = $state(false);
 	let bodyEl = $state<HTMLTextAreaElement | null>(null);
+	// Editable, so it must be $state — but the URL is the source of truth. Without
+	// this resync, navigating back (or clearing the search) would leave a stale
+	// term sitting in the box while the table showed different rows.
+	let search = $state(data.q);
+	$effect(() => {
+		search = data.q;
+	});
+	// Uploader fields are bound, so they need their own state keyed per field.
+	let uploads = $state<Record<string, string>>({});
 
 	const columns = $derived(data.schema.fields.filter((f) => f.column));
 	const titleOf = (row: Row) => String(row[data.schema.titleField] ?? '(untitled)');
 
-	function startNew() {
+	function openNew() {
 		editing = { isActive: true };
+		uploads = {};
+	}
+	function openEdit(row: Row) {
+		editing = row;
+		uploads = Object.fromEntries(
+			data.schema.fields
+				.filter((f) => f.type === 'image')
+				.map((f) => [f.name, String(row[f.name] ?? '')])
+		);
 	}
 
 	function valueFor(row: Row | null, name: string, type: string): string {
@@ -25,14 +49,23 @@
 		return String(v);
 	}
 
-	/** Wrap or insert markdown around the current selection. */
+	// Search round-trips through the URL like sort and paging, so the server
+	// filters and the result is linkable.
+	function submitSearch(e: Event) {
+		e.preventDefault();
+		const params = new URLSearchParams(pageState.url.searchParams);
+		if (search.trim()) params.set('q', search.trim());
+		else params.delete('q');
+		params.delete('page');
+		goto(`?${params}`, { keepFocus: true, noScroll: true });
+	}
+
 	function surround(before: string, after = before, placeholder = 'text') {
 		const el = bodyEl;
 		if (!el) return;
 		const { selectionStart: s, selectionEnd: e, value } = el;
 		const selected = value.slice(s, e) || placeholder;
-		const next = value.slice(0, s) + before + selected + after + value.slice(e);
-		el.value = next;
+		el.value = value.slice(0, s) + before + selected + after + value.slice(e);
 		el.focus();
 		el.setSelectionRange(s + before.length, s + before.length + selected.length);
 	}
@@ -43,11 +76,14 @@
 		{ label: 'B', run: () => surround('**', '**', 'bold') },
 		{ label: 'I', run: () => surround('_', '_', 'italic') },
 		{ label: 'Link', run: () => surround('[', '](https://)', 'label') },
-		{ label: 'Image', run: () => surround('![', '](/images/example.png)', 'alt') },
+		{ label: 'Image', run: () => surround('![', '](/cdn/portafolio/…)', 'alt') },
 		{ label: 'Code', run: () => surround('\n```\n', '\n```\n', 'code') },
 		{ label: 'Quote', run: () => surround('\n> ', '\n', 'quote') },
 		{ label: 'List', run: () => surround('\n- ', '\n', 'item') }
 	];
+
+	const field =
+		'w-full border border-outline/40 bg-surface-lowest/60 px-3 py-2.5 text-sm text-on-surface outline-none focus:border-primary-container';
 </script>
 
 <svelte:head>
@@ -62,7 +98,7 @@
 		</h1>
 		<button
 			type="button"
-			onclick={startNew}
+			onclick={openNew}
 			class="clip-corner bg-primary-container px-5 py-2.5 font-mono text-xs font-bold tracking-[0.1em] text-surface uppercase hover:bg-primary-fixed"
 		>
 			+ New
@@ -78,152 +114,105 @@
 		</p>
 	{/if}
 
-	<!-- ============ list ============ -->
-	<div class="glass chamfer-tr mb-8 overflow-x-auto">
-		<table class="w-full min-w-[520px] border-collapse text-left">
-			<thead>
-				<tr class="border-b border-white/10">
-					{#each columns as c (c.name)}
-						<th
-							class="px-4 py-3 font-mono text-xs tracking-[0.1em] text-primary-container uppercase"
-						>
-							{c.label}
-						</th>
-					{/each}
-					<th class="px-4 py-3"></th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each data.items as row (row.id)}
-					<tr class="border-b border-white/5 transition-colors hover:bg-primary-container/5">
-						{#each columns as c (c.name)}
-							<td class="px-4 py-3 text-sm text-on-surface-variant">
-								{#if c.type === 'boolean'}
-									{@const hidden = (row as Row)[c.name] === false}
-									<span class={hidden ? 'text-outline' : 'text-tertiary-container'}>
-										{hidden ? 'hidden' : 'visible'}
-									</span>
-								{:else}
-									{valueFor(row as Row, c.name, c.type) || '—'}
-								{/if}
-							</td>
-						{/each}
-						<td class="px-4 py-3 text-right whitespace-nowrap">
-							<button
-								type="button"
-								onclick={() => (editing = row as Row)}
-								class="font-mono text-xs tracking-[0.1em] text-primary-container uppercase hover:underline"
-							>
-								Edit
-							</button>
-							<form
-								method="POST"
-								action="?/remove"
-								class="ml-3 inline"
-								use:enhance={() =>
-									async ({ update }) => {
-										await update();
-										await invalidateAll();
-									}}
-							>
-								<input type="hidden" name="id" value={row.id} />
-								<button
-									type="submit"
-									class="font-mono text-xs tracking-[0.1em] text-error uppercase hover:underline"
-									onclick={(e) => {
-										if (!confirm(`Delete "${titleOf(row as Row)}"? This cannot be undone.`))
-											e.preventDefault();
-									}}
-								>
-									Delete
-								</button>
-							</form>
-						</td>
-					</tr>
-				{:else}
-					<tr>
-						<td
-							colspan={columns.length + 1}
-							class="px-4 py-8 text-center font-mono text-xs text-outline"
-						>
-							Nothing here yet.
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	</div>
-
-	<!-- ============ editor ============ -->
-	{#if editing}
-		<div class="glass chamfer-tr p-6">
-			<h2 class="m-0 mb-5 font-mono text-sm tracking-[0.12em] text-secondary uppercase">
-				{editing.id ? `Edit — ${titleOf(editing)}` : 'New record'}
-			</h2>
-
-			<form
-				method="POST"
-				action="?/save"
-				use:enhance={() => {
-					saving = true;
-					return async ({ update, result }) => {
-						await update({ reset: false });
-						saving = false;
-						if (result.type === 'success') {
-							editing = null;
-							await invalidateAll();
-						}
-					};
-				}}
-				class="flex flex-col gap-5"
+	<form onsubmit={submitSearch} class="mb-4 flex gap-2" role="search">
+		<input
+			bind:value={search}
+			placeholder="Search…"
+			aria-label="Search {data.schema.label}"
+			class="{field} max-w-xs font-mono text-xs"
+		/>
+		<button
+			type="submit"
+			class="border border-outline/40 px-4 font-mono text-xs uppercase hover:border-primary-container hover:text-primary-container"
+		>
+			Search
+		</button>
+		{#if data.q}
+			<a
+				href={pageState.url.pathname}
+				class="flex items-center px-3 font-mono text-xs text-outline hover:text-primary-container"
+				>Clear</a
 			>
-				{#if editing.id}<input type="hidden" name="id" value={editing.id} />{/if}
+		{/if}
+	</form>
 
-				{#each data.schema.fields as field (field.name)}
-					<div class="flex flex-col gap-2">
-						<label
-							class="font-mono text-xs tracking-[0.1em] text-outline uppercase"
-							for={field.name}
-						>
-							{field.label}{#if field.required}<span class="text-error"> *</span>{/if}
+	<DataTable
+		{columns}
+		rows={data.items as Row[]}
+		sort={data.sort}
+		dir={data.dir}
+		onedit={openEdit}
+		ondelete={(row) => (deleting = row)}
+	/>
+
+	<Pagination page={data.page} pages={data.pages} total={data.total} perPage={data.perPage} />
+</div>
+
+<!-- ============ editor modal ============ -->
+<Modal
+	open={editing !== null}
+	title={editing?.id ? `Edit — ${titleOf(editing)}` : 'New record'}
+	size="lg"
+>
+	{#if editing}
+		<form
+			id="entity-form"
+			method="POST"
+			action="?/save"
+			use:enhance={() => {
+				saving = true;
+				return async ({ update, result }) => {
+					await update({ reset: false });
+					saving = false;
+					if (result.type === 'success') {
+						editing = null;
+						await invalidateAll();
+					}
+				};
+			}}
+			class="flex flex-col gap-5"
+		>
+			{#if editing.id}<input type="hidden" name="id" value={editing.id} />{/if}
+
+			{#each data.schema.fields as f (f.name)}
+				<div class="flex flex-col gap-2">
+					{#if f.type === 'image'}
+						<FileUpload bind:value={uploads[f.name]} folder={data.entity} label={f.label} />
+						<input type="hidden" name={f.name} value={uploads[f.name] ?? ''} />
+					{:else}
+						<label class="font-mono text-xs tracking-[0.1em] text-outline uppercase" for={f.name}>
+							{f.label}{#if f.required}<span class="text-error"> *</span>{/if}
 						</label>
 
-						{#if field.type === 'boolean'}
+						{#if f.type === 'boolean'}
 							<input
-								id={field.name}
-								name={field.name}
+								id={f.name}
+								name={f.name}
 								type="checkbox"
-								checked={editing[field.name] !== false}
+								checked={editing[f.name] !== false}
 								class="h-5 w-5 accent-[#00f3ff]"
 							/>
-						{:else if field.type === 'select'}
+						{:else if f.type === 'select'}
 							<select
-								id={field.name}
-								name={field.name}
-								value={valueFor(editing, field.name, field.type) || field.options?.[0]}
-								class="border border-outline/40 bg-surface-lowest/60 px-3 py-2.5 font-mono text-sm text-on-surface outline-none focus:border-primary-container"
+								id={f.name}
+								name={f.name}
+								value={valueFor(editing, f.name, f.type) || f.options?.[0]}
+								class={field}
 							>
-								{#each field.options ?? [] as opt (opt)}
-									<option value={opt}>{opt}</option>
-								{/each}
+								{#each f.options ?? [] as opt (opt)}<option value={opt}>{opt}</option>{/each}
 							</select>
-						{:else if field.type === 'markdown'}
-							<div class="flex flex-wrap gap-1.5 pb-1">
+						{:else if f.type === 'markdown'}
+							<div class="flex flex-wrap gap-1.5">
 								{#each tools as t (t.label)}
 									<button
 										type="button"
 										onclick={t.run}
-										class="border border-outline/40 px-2.5 py-1 font-mono text-xs text-on-surface-variant transition-colors hover:border-primary-container hover:text-primary-container"
+										class="border border-outline/40 px-2.5 py-1 font-mono text-xs text-on-surface-variant hover:border-primary-container hover:text-primary-container"
 									>
 										{t.label}
 									</button>
 								{/each}
 								{#if editing.slug}
-									<!--
-										Preview reuses the real page: drafts render at /blog/<slug>
-										for a signed-in admin. One renderer, one sanitiser — a second
-										client-side preview pipeline would drift from the server's.
-									-->
 									<a
 										href="/blog/{editing.slug}"
 										target="_blank"
@@ -236,53 +225,92 @@
 							</div>
 							<textarea
 								bind:this={bodyEl}
-								id={field.name}
-								name={field.name}
-								rows="18"
-								value={valueFor(editing, field.name, field.type)}
-								class="border border-outline/40 bg-surface-lowest/60 px-3 py-2.5 font-mono text-sm leading-relaxed text-on-surface outline-none focus:border-primary-container"
+								id={f.name}
+								name={f.name}
+								rows="16"
+								value={valueFor(editing, f.name, f.type)}
+								class="{field} font-mono leading-relaxed"
 							></textarea>
-						{:else if field.type === 'textarea'}
+						{:else if f.type === 'textarea'}
 							<textarea
-								id={field.name}
-								name={field.name}
+								id={f.name}
+								name={f.name}
 								rows="3"
-								value={valueFor(editing, field.name, field.type)}
-								class="border border-outline/40 bg-surface-lowest/60 px-3 py-2.5 text-sm text-on-surface outline-none focus:border-primary-container"
+								value={valueFor(editing, f.name, f.type)}
+								class={field}
 							></textarea>
 						{:else}
 							<input
-								id={field.name}
-								name={field.name}
-								type={field.type === 'number' ? 'number' : 'text'}
-								value={valueFor(editing, field.name, field.type)}
-								class="border border-outline/40 bg-surface-lowest/60 px-3 py-2.5 font-mono text-sm text-on-surface outline-none focus:border-primary-container"
+								id={f.name}
+								name={f.name}
+								type={f.type === 'number' ? 'number' : 'text'}
+								value={valueFor(editing, f.name, f.type)}
+								class={field}
 							/>
 						{/if}
+					{/if}
 
-						{#if field.help}
-							<span class="font-mono text-xs text-outline">{field.help}</span>
-						{/if}
-					</div>
-				{/each}
-
-				<div class="flex gap-3">
-					<button
-						type="submit"
-						disabled={saving}
-						class="clip-corner bg-primary-container px-6 py-3 font-mono text-xs font-bold tracking-[0.1em] text-surface uppercase hover:bg-primary-fixed disabled:opacity-50"
-					>
-						{saving ? 'Saving…' : 'Save'}
-					</button>
-					<button
-						type="button"
-						onclick={() => (editing = null)}
-						class="clip-corner border border-outline/50 px-6 py-3 font-mono text-xs tracking-[0.1em] text-on-surface-variant uppercase hover:bg-white/5"
-					>
-						Cancel
-					</button>
+					{#if f.help}<span class="font-mono text-xs text-outline">{f.help}</span>{/if}
 				</div>
+			{/each}
+		</form>
+	{/if}
+
+	{#snippet footer()}
+		<div class="flex justify-end gap-3">
+			<button
+				type="button"
+				onclick={() => (editing = null)}
+				class="clip-corner border border-outline/50 px-6 py-2.5 font-mono text-xs tracking-[0.1em] text-on-surface-variant uppercase hover:bg-white/5"
+			>
+				Cancel
+			</button>
+			<button
+				type="submit"
+				form="entity-form"
+				disabled={saving}
+				class="clip-corner bg-primary-container px-6 py-2.5 font-mono text-xs font-bold tracking-[0.1em] text-surface uppercase hover:bg-primary-fixed disabled:opacity-50"
+			>
+				{saving ? 'Saving…' : 'Save'}
+			</button>
+		</div>
+	{/snippet}
+</Modal>
+
+<!-- ============ delete confirmation ============ -->
+<Modal open={deleting !== null} title="Confirm delete">
+	{#if deleting}
+		<p class="m-0 text-sm text-on-surface-variant">
+			Delete <strong class="text-on-surface">{titleOf(deleting)}</strong>? This cannot be undone.
+		</p>
+	{/if}
+	{#snippet footer()}
+		<div class="flex justify-end gap-3">
+			<button
+				type="button"
+				onclick={() => (deleting = null)}
+				class="clip-corner border border-outline/50 px-6 py-2.5 font-mono text-xs tracking-[0.1em] text-on-surface-variant uppercase hover:bg-white/5"
+			>
+				Cancel
+			</button>
+			<form
+				method="POST"
+				action="?/remove"
+				use:enhance={() =>
+					async ({ update }) => {
+						await update();
+						deleting = null;
+						await invalidateAll();
+					}}
+			>
+				<input type="hidden" name="id" value={deleting?.id ?? ''} />
+				<button
+					type="submit"
+					class="clip-corner border border-error bg-error/10 px-6 py-2.5 font-mono text-xs font-bold tracking-[0.1em] text-error uppercase hover:bg-error/20"
+				>
+					Delete
+				</button>
 			</form>
 		</div>
-	{/if}
-</div>
+	{/snippet}
+</Modal>
