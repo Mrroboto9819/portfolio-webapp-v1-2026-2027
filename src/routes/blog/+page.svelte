@@ -26,7 +26,7 @@
 
 <div class="crt" aria-hidden="true"></div>
 <Atmosphere />
-<Nav />
+<Nav social={data.social} locale={data.locale} songs={data.songs} />
 
 <main
 	class="relative z-10 mx-auto min-h-dvh max-w-(--container-max) px-margin-mobile pt-24 pb-16 md:px-margin-desktop"

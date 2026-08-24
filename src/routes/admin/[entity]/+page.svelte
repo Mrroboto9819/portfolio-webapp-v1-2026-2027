@@ -8,6 +8,7 @@
 	import HoldButton from '$lib/components/admin/HoldButton.svelte';
 	import FileUpload from '$lib/components/admin/FileUpload.svelte';
 	import { LOCALES, LOCALE_LABEL, TRANSLATABLE, t } from '$lib/i18n';
+	import { toast } from '$lib/toast.svelte';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -27,6 +28,10 @@
 	});
 	// Uploader fields are bound, so they need their own state keyed per field.
 	let uploads = $state<Record<string, string>>({});
+	// Saving mid-upload would store an empty URL and lose the file, so Save is
+	// blocked until every in-flight transfer settles.
+	let uploading = $state<Record<string, boolean>>({});
+	const busyUploading = $derived(Object.values(uploading).some(Boolean));
 
 	const columns = $derived(data.schema.fields.filter((f) => f.column));
 	const titleOf = (row: Row) => String(row[data.schema.titleField] ?? '(untitled)');
@@ -190,8 +195,11 @@
 					await update({ reset: false });
 					saving = false;
 					if (result.type === 'success') {
+						toast.success('Saved');
 						editing = null;
 						await invalidateAll();
+					} else if (result.type === 'failure') {
+						toast.error(String(result.data?.message ?? 'Save failed'));
 					}
 				};
 			}}
@@ -207,6 +215,7 @@
 							folder={data.entity}
 							label={f.label}
 							kind={f.type === 'audio' ? 'audio' : 'image'}
+							onbusy={(b) => (uploading[f.name] = b)}
 						/>
 						<input type="hidden" name={f.name} value={uploads[f.name] ?? ''} />
 					{:else}
@@ -220,7 +229,7 @@
 								name={f.name}
 								type="checkbox"
 								checked={editing[f.name] !== false}
-								class="h-5 w-5 accent-[#00f3ff]"
+								class="cyber-switch"
 							/>
 						{:else if f.type === 'select'}
 							<select

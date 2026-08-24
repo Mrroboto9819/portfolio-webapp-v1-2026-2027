@@ -85,33 +85,36 @@
 						<td class="px-4 py-3 text-sm text-on-surface-variant">
 							{#if c.type === 'boolean'}
 								{@const on = row[c.name] !== false}
-								<!-- A real form posting to ?/toggle, so visibility can still be
-								     flipped if the JS bundle fails; use:enhance just keeps the
-								     page from navigating when it works. -->
-								<form
-									method="POST"
-									action="?/toggle"
-									class="inline-flex items-center gap-2.5"
-									use:enhance={() =>
-										async ({ update }) => {
-											await update({ reset: false });
-											await invalidateAll();
-										}}
-								>
-									<input type="hidden" name="id" value={row.id} />
-									<input type="hidden" name="field" value={c.name} />
-									<input type="hidden" name="next" value={String(!on)} />
-									<Switch checked={on} label="Toggle {c.label}" />
-									<span class="font-mono text-xs {on ? 'text-tertiary-container' : 'text-outline'}">
-										{on ? 'visible' : 'hidden'}
-									</span>
-								</form>
+								<span class="font-mono text-xs {on ? 'text-tertiary-container' : 'text-outline'}">
+									{on ? 'yes' : 'no'}
+								</span>
 							{:else}
 								<span class="line-clamp-2">{display(row, c)}</span>
 							{/if}
 						</td>
 					{/each}
 					<td class="px-4 py-3 text-right whitespace-nowrap">
+						<!-- Visibility first, and always present: it is the one action
+						     wanted at a glance, and it does not depend on the schema
+						     happening to list isActive as a column. -->
+						<form
+							method="POST"
+							action="?/toggle"
+							class="mr-4 inline-flex items-center align-middle"
+							use:enhance={() =>
+								async ({ update }) => {
+									await update({ reset: false });
+									await invalidateAll();
+								}}
+						>
+							<input type="hidden" name="id" value={row.id} />
+							<input type="hidden" name="field" value="isActive" />
+							<input type="hidden" name="next" value={String(row.isActive === false)} />
+							<Switch
+								checked={row.isActive !== false}
+								label={row.isActive !== false ? 'Hide record' : 'Show record'}
+							/>
+						</form>
 						<button
 							type="button"
 							onclick={() => onedit(row)}

@@ -7,19 +7,86 @@
 	let { songs }: { songs: Song[] } = $props();
 
 	let open = $state(false);
+	let root = $state<HTMLElement | null>(null);
+	let hovering = $state(false);
+
+	// Click-outside closes the PANEL only — never stops playback. Collapsing a
+	// player that is still playing is expected; silencing it because someone
+	// clicked the page would not be.
+	function onPointerDown(e: PointerEvent) {
+		if (!open || !root) return;
+		if (!root.contains(e.target as Node)) open = false;
+	}
+
+	// Idle at reduced opacity so it never competes with the page, full strength
+	// whenever it is expanded, hovered, or focused from the keyboard.
+	const solid = $derived(open || hovering);
 
 	$effect(() => {
 		player.load(songs);
 	});
+
+	// Try to start on the reader's first interaction.
+	//
+	// Honest about the platform: Chrome and Safari grant autoplay only on a
+	// real activation gesture — click, tap or keypress. A scroll does NOT
+	// count, so scrolling alone may not start it; the attempt is made anyway
+	// because it costs nothing and some engines (and any prior interaction on
+	// the origin) do allow it. The first click or tap will always work.
+	//
+	// It fires ONCE and never fights the reader: if they pause, that decision
+	// stands for the rest of the visit.
+	let autoTried = false;
+
+	function tryAutoplay() {
+		if (autoTried || !songs.length) return;
+		autoTried = true;
+		// sessionStorage so "I paused this" survives navigation but not a new visit.
+		try {
+			if (sessionStorage.getItem('music-optout') === '1') return;
+		} catch {
+			/* private mode — just proceed */
+		}
+		player.playAt(player.index);
+	}
+
+	function optOutOnPause() {
+		// Only a deliberate pause counts, not the gap between tracks.
+		try {
+			if (autoTried && !player.playing) sessionStorage.setItem('music-optout', '1');
+		} catch {
+			/* ignore */
+		}
+	}
 
 	// A cheap 5-bar equaliser: no Web Audio analyser, no per-frame work — it is
 	// decoration, and decoration should not cost a rAF loop.
 	const bars = [0, 1, 2, 3, 4];
 </script>
 
+<!-- Must be top level: svelte:window cannot live inside a block. -->
+<svelte:window
+	onpointerdown={onPointerDown}
+	onscroll={tryAutoplay}
+	onkeydown={tryAutoplay}
+	ontouchstart={tryAutoplay}
+	onclick={tryAutoplay}
+/>
+
 {#if songs.length}
 	<div class="pointer-events-none fixed right-6 bottom-6 z-40 hidden md:block">
-		<div class="pointer-events-auto flex flex-col items-end gap-2">
+		<div
+			bind:this={root}
+			onmouseenter={() => (hovering = true)}
+			onmouseleave={() => (hovering = false)}
+			onfocusin={() => (hovering = true)}
+			onfocusout={() => (hovering = false)}
+			role="region"
+			aria-label="Music player"
+			class="pointer-events-auto flex flex-col items-end gap-2 transition-opacity duration-300"
+			class:opacity-100={solid}
+			class:opacity-55={!solid}
+		>
 			{#if open}
 				<div class="glass chamfer-tr hud-corners relative w-72 p-4">
 					<div class="mb-3 flex items-center justify-between">
@@ -87,7 +154,10 @@
 							</button>
 							<button
 								type="button"
-								onclick={() => player.toggle()}
+								onclick={() => {
+									player.toggle();
+									optOutOnPause();
+								}}
 								aria-label={player.playing ? 'Pause' : 'Play'}
 								class="border border-primary-container/60 bg-primary-container/10 p-2 text-primary-container hover:bg-primary-container/20"
 							>

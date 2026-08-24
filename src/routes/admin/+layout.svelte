@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { ENTITY_ORDER, SCHEMAS } from '$lib/adminSchema';
+	import Toaster from '$lib/components/Toaster.svelte';
 	import type { LayoutData } from './$types';
 
 	let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
 	const isLogin = $derived(page.url.pathname === '/admin/login');
 </script>
+
+<Toaster />
 
 {#if isLogin}
 	{@render children()}

@@ -160,3 +160,51 @@ export const UI: Record<Locale, Record<string, string>> = {
 export function ui(key: string, locale: Locale = DEFAULT_LOCALE): string {
 	return UI[locale]?.[key] ?? UI.en[key] ?? key;
 }
+
+/**
+ * Server-side API messages.
+ *
+ * Kept beside the UI strings so both languages of a message live together.
+ * The API resolves these against the request locale, which hooks already
+ * derived from ?lang= / cookie / Accept-Language — so an error surfaces in the
+ * reader's language rather than always in English.
+ */
+export const API_MESSAGES: Record<Locale, Record<string, string>> = {
+	en: {
+		'api.unauthorized': 'Your session has expired. Please sign in again.',
+		'api.forbidden': 'Read-only: sign in to the admin to make changes.',
+		'api.notFound': 'Not found.',
+		'api.badJson': 'Invalid JSON body.',
+		'api.badBody': 'Body must be an object.',
+		'api.unknownEntity': 'Unknown entity.',
+		'api.uploadNoFile': 'No file provided.',
+		'api.uploadUnsupported': 'Unsupported file type.',
+		'api.uploadTooLarge': 'File is too large.',
+		'api.storageOff': 'Object storage is not configured.',
+		'api.saved': 'Saved.',
+		'api.deleted': 'Deleted.',
+		'api.serverError': 'Something went wrong. Please try again.',
+		'api.network': 'Network error — check your connection.'
+	},
+	es: {
+		'api.unauthorized': 'Tu sesión ha expirado. Inicia sesión de nuevo.',
+		'api.forbidden': 'Solo lectura: inicia sesión en el admin para hacer cambios.',
+		'api.notFound': 'No encontrado.',
+		'api.badJson': 'Cuerpo JSON inválido.',
+		'api.badBody': 'El cuerpo debe ser un objeto.',
+		'api.unknownEntity': 'Entidad desconocida.',
+		'api.uploadNoFile': 'No se envió ningún archivo.',
+		'api.uploadUnsupported': 'Tipo de archivo no admitido.',
+		'api.uploadTooLarge': 'El archivo es demasiado grande.',
+		'api.storageOff': 'El almacenamiento de objetos no está configurado.',
+		'api.saved': 'Guardado.',
+		'api.deleted': 'Eliminado.',
+		'api.serverError': 'Algo salió mal. Inténtalo de nuevo.',
+		'api.network': 'Error de red — revisa tu conexión.'
+	}
+};
+
+/** Resolve an API message for a locale, falling back to English then the key. */
+export function apiMessage(key: string, locale: Locale = DEFAULT_LOCALE): string {
+	return API_MESSAGES[locale]?.[key] ?? API_MESSAGES.en[key] ?? key;
+}

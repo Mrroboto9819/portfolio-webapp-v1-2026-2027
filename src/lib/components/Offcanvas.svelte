@@ -128,7 +128,7 @@
 <!-- drawer: left edge, full height -->
 <div
 	bind:this={panel}
-	class="glass fixed top-0 left-0 z-[61] flex h-dvh w-[min(80vw,284px)] flex-col opacity-0"
+	class="glass fixed top-0 left-0 z-[61] flex h-dvh max-h-dvh w-[min(80vw,284px)] flex-col overflow-hidden opacity-0"
 	class:pointer-events-none={!open}
 	style="visibility: hidden; border-right: 1px solid rgba(0,220,230,0.35)"
 	role="dialog"
@@ -136,7 +136,7 @@
 	aria-label="Site navigation"
 >
 	<!-- identity header -->
-	<div data-oc-item class="flex items-center gap-3 border-b border-white/10 px-5 py-4">
+	<div data-oc-item class="flex shrink-0 items-center gap-3 border-b border-white/10 px-5 py-4">
 		<img
 			src="/yo.webp"
 			alt=""
@@ -173,7 +173,10 @@
 	</div>
 
 	<!-- nav rows: icon + label, active row carries a magenta bar and tint -->
-	<nav class="flex flex-col py-3">
+	<!-- The panel is pinned to the viewport and never scrolls itself; only this
+	     list does. Otherwise a long page (the blog) pushed the drawer taller
+	     than the screen and the whole thing scrolled away. -->
+	<nav class="min-h-0 flex-1 overflow-y-auto py-3">
 		{#each links as link (link.href)}
 			<a
 				href={link.href}
@@ -206,7 +209,7 @@
 
 	<!-- player transport: the drawer is the only control surface on mobile -->
 	{#if songs.length}
-		<div data-oc-item class="mt-auto border-t border-white/10 px-5 py-4">
+		<div data-oc-item class="shrink-0 border-t border-white/10 px-5 py-4">
 			<div class="mb-2.5 flex items-center justify-between">
 				<span class="font-mono text-xs tracking-[0.14em] text-secondary uppercase">// AUDIO</span>
 				<span class="flex h-3 items-end gap-[2px]" aria-hidden="true">
@@ -262,7 +265,7 @@
 	{/if}
 
 	<!-- footer: social + primary action -->
-	<div class="{songs.length ? '' : 'mt-auto'} border-t border-white/10 px-5 py-4">
+	<div class="shrink-0 border-t border-white/10 px-5 py-4">
 		{#if social.length}
 			<div data-oc-item class="mb-4 flex flex-wrap gap-4">
 				{#each social as s (s.id)}

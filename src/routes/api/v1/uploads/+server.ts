@@ -7,6 +7,7 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { uploadObject, storageConfigured, MAX_UPLOAD_BYTES, ALLOWED_TYPES } from '$lib/server/s3';
+import { apiMessage } from '$lib/i18n';
 
 export const GET: RequestHandler = async () =>
 	json({
@@ -15,18 +16,19 @@ export const GET: RequestHandler = async () =>
 		accepts: Object.keys(ALLOWED_TYPES)
 	});
 
-export const POST: RequestHandler = async ({ request }) => {
-	if (!storageConfigured()) error(503, 'Object storage is not configured');
+export const POST: RequestHandler = async ({ request, locals }) => {
+	const locale = locals.locale;
+	if (!storageConfigured()) error(503, apiMessage('api.storageOff', locale));
 
 	let form: FormData;
 	try {
 		form = await request.formData();
 	} catch {
-		error(400, 'Expected multipart/form-data');
+		error(400, apiMessage('api.badBody', locale));
 	}
 
 	const file = form.get('file');
-	if (!(file instanceof File)) error(400, 'No file provided under the "file" field');
+	if (!(file instanceof File)) error(400, apiMessage('api.uploadNoFile', locale));
 
 	const folder = String(form.get('folder') ?? 'uploads');
 

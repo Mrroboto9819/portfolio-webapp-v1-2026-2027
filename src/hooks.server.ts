@@ -21,7 +21,7 @@ import {
 } from '$lib/server/auth';
 import { consumeRefreshToken, safeEqual } from '$lib/server/sessions';
 import { recordVisit } from '$lib/server/visits';
-import { LOCALES, resolveLocale } from '$lib/i18n';
+import { LOCALES, apiMessage, resolveLocale } from '$lib/i18n';
 
 const ALLOWED_HOSTS = new Set([
 	'pablocabrera.dev',
@@ -134,7 +134,7 @@ const csrfGuard: Handle = async ({ event, resolve }) => {
 		const host = hostOf(origin) ?? hostOf(request.headers.get('referer'));
 
 		if (!sameOrigin && (!host || !ALLOWED_HOSTS.has(host))) {
-			return json({ message: 'Forbidden: cross-origin write blocked' }, { status: 403 });
+			return json({ message: apiMessage('api.forbidden', event.locals.locale) }, { status: 403 });
 		}
 	}
 
@@ -174,9 +174,17 @@ const writeGuard: Handle = async ({ event, resolve }) => {
 
 		if (expected && presented && safeEqual(presented, expected)) return resolve(event);
 
+		// Localised from the request locale, which hooks already derived, so the
+		// client does not have to translate a server string it did not author.
+		const unauthorized = Boolean(expected && presented);
 		return json(
-			{ message: expected ? 'Unauthorized' : 'Read-only: sign in to the admin to make changes' },
-			{ status: expected && presented ? 401 : 403 }
+			{
+				message: apiMessage(
+					unauthorized ? 'api.unauthorized' : 'api.forbidden',
+					event.locals.locale
+				)
+			},
+			{ status: unauthorized ? 401 : 403 }
 		);
 	}
 

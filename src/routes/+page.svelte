@@ -13,6 +13,7 @@
 	import Footer from '$lib/components/Footer.svelte';
 	import AdminShortcut from '$lib/components/AdminShortcut.svelte';
 	import MusicPlayer from '$lib/components/MusicPlayer.svelte';
+	import Toaster from '$lib/components/Toaster.svelte';
 	import { reveal, revealStagger } from '$lib/motion';
 	import { ui } from '$lib/i18n';
 	import type { PageData } from './$types';
@@ -61,6 +62,7 @@
 </svelte:head>
 
 <AdminShortcut />
+<Toaster />
 <div class="crt" aria-hidden="true"></div>
 <Atmosphere />
 <Nav social={data.social} locale={data.locale} songs={data.songs} />
