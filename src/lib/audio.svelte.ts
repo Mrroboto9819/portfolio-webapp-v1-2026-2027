@@ -4,23 +4,28 @@
 // surfaces drive it — the floating desktop widget and the controls inside the
 // drawer — and they must be the same player, not two that fight each other.
 //
-// Lazy creation is deliberate: browsers block autoplay until a user gesture,
-// so constructing the element on first interaction keeps the "why is nothing
-// happening" case out of the picture entirely. The one exception is restoring
-// a previous visit, where the element is primed with `preload="metadata"` so
-// the widget can show the track and where the listener was WITHOUT playing.
+// NOTHING HERE EVER STARTS AUDIO ON ITS OWN.
 //
-// The listener's session survives a reload: which track, how far in, whether
-// it was playing, and how loud. That state is browser-local (see persist.ts) —
-// it is the one thing the server cannot know.
+// There is exactly one way sound begins: the listener presses a play control,
+// which calls toggle() or playAt(). No scroll handler, no timer, no "resume
+// what you were playing", no once-a-day allowance. This is not a default that
+// can be configured back on — the code paths that did it are gone.
+//
+// This is a hard requirement, learned the expensive way: the site opened in an
+// interview and started playing music. A portfolio that makes noise at someone
+// without being asked is worse than a portfolio with no music at all.
+//
+// Continuation across a reload still works, but as STATE, not as playback: the
+// track, the position and the volume come back, the transport comes back
+// paused, and pressing play picks up exactly where they left off. The element
+// is primed with `preload="metadata"` so the widget can show the track and the
+// elapsed time WITHOUT making a sound.
 
 import { browser } from '$app/environment';
-import { olderThan, readJSON, stamp, writeJSON } from '$lib/persist';
+import { readJSON, writeJSON } from '$lib/persist';
 import type { Song } from '$lib/types';
 
 const KEY = 'music';
-const AUTOPLAY_KEY = 'music:autoplay-at';
-const DAY_MS = 24 * 60 * 60 * 1000;
 /** Position is written at most this often; `timeupdate` fires ~4x a second. */
 const SAVE_EVERY_MS = 1500;
 
@@ -30,11 +35,14 @@ const SAVE_EVERY_MS = 1500;
  * The track is stored by URL, not by index: the queue is admin-editable, so a
  * saved index would silently point at a different song the moment a track is
  * added, removed or reordered.
+ *
+ * There is deliberately no `playing` field. Persisting it would mean storing a
+ * value whose only purpose is to make sound happen on the next page load, and
+ * that is the thing this player must never do.
  */
 type Saved = {
 	url: string;
 	position: number;
-	playing: boolean;
 	volume: number;
 	muted: boolean;
 };
@@ -50,10 +58,8 @@ class Player {
 	position = $state(0);
 	duration = $state(0);
 
-	/** True once a previous visit has been restored into this one. */
+	/** True once a previous visit's track and position have been restored. */
 	restored = $state(false);
-	/** A restore the browser refused for want of a gesture, waiting for one. */
-	resumePending = $state(false);
 
 	#el: HTMLAudioElement | null = null;
 	/** True once the listener pressed play; cleared only by an explicit pause. */
@@ -115,9 +121,9 @@ class Player {
 		// Load metadata only. This shows the track title, duration and elapsed
 		// time in the widget without making a sound, so a restored-but-paused
 		// session looks exactly like the one they left.
+		// Primed, never played. Restoring is where the old code called #resume()
+		// and where the interview incident came from.
 		this.#prime();
-
-		if (saved.playing) this.#resume();
 	}
 
 	#prime() {
@@ -126,61 +132,6 @@ class Player {
 		if (!el || !song) return;
 		el.preload = 'metadata';
 		if (el.src !== new URL(song.url, location.origin).href) el.src = song.url;
-	}
-
-	/**
-	 * Resume a session that was playing when the tab closed.
-	 *
-	 * Almost every browser refuses this without a prior gesture on the origin,
-	 * which is not a failure — it is the platform. The attempt is armed instead
-	 * and fires on the reader's first interaction, so the track picks up where
-	 * it left off rather than being lost.
-	 */
-	async #resume() {
-		await this.playAt(this.index);
-		if (!this.playing) this.resumePending = true;
-	}
-
-	/**
-	 * Retry a refused restore. Returns true when playback actually started.
-	 *
-	 * It stays armed after a failure: the first gesture on a page can arrive
-	 * before the browser considers the origin activated, and disarming there
-	 * would drop the session for good.
-	 */
-	async resumeIfArmed(): Promise<boolean> {
-		if (!this.resumePending || !this.queue.length) return false;
-		await this.playAt(this.index);
-		if (!this.playing) return false;
-		this.resumePending = false;
-		return true;
-	}
-
-	// ----------------------------------------------------------- autoplay ---
-
-	/**
-	 * May the scroll-triggered autoplay run?
-	 *
-	 * Once per 24 hours, and never when a previous session was restored — if
-	 * they left it paused, starting it again is overriding a decision they
-	 * already made.
-	 */
-	canAutoplay(): boolean {
-		return Boolean(this.queue.length) && !this.restored && olderThan(AUTOPLAY_KEY, DAY_MS);
-	}
-
-	/**
-	 * Attempt the once-a-day autoplay. Returns true if sound actually started.
-	 *
-	 * The 24-hour clock is stamped on SUCCESS, not on the attempt: a browser
-	 * refusing autoplay before any gesture is the common case, and burning the
-	 * day's single attempt on a refusal would mean it effectively never ran.
-	 */
-	async autoplay(): Promise<boolean> {
-		if (!this.canAutoplay()) return false;
-		await this.playAt(this.index);
-		if (this.playing) stamp(AUTOPLAY_KEY);
-		return this.playing;
 	}
 
 	// ------------------------------------------------------------- engine ---
@@ -294,10 +245,7 @@ class Player {
 			this.#wantsPlayback = false;
 			el.pause();
 		} else {
-			// Pressing play by hand also settles the day's autoplay question:
-			// they have heard it, so it should not start itself again later.
-			this.resumePending = false;
-			stamp(AUTOPLAY_KEY);
+			// The only entry point for sound in the whole app.
 			await this.playAt(this.index);
 		}
 	}
@@ -363,7 +311,6 @@ class Player {
 		writeJSON(KEY, {
 			url: song.url,
 			position: this.position,
-			playing: this.playing,
 			volume: this.volume,
 			muted: this.muted
 		} satisfies Saved);

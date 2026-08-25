@@ -44,62 +44,16 @@
 		player.load(queue);
 	});
 
-	// Starting playback without the reader asking.
+	// There is no autoplay, and there is no code here that can start audio.
 	//
-	// Two separate cases, in priority order:
+	// This component used to listen on scroll, click, keydown and touchstart to
+	// try to start the queue, and to reopen the panel when it succeeded. It
+	// opened during an interview and played music at the room. Sound on a page
+	// someone did not ask for is never worth what it costs when it goes wrong,
+	// so the whole path is gone rather than made quieter or rate-limited.
 	//
-	//   1. RESUME — they were listening last time and the tab closed mid-track.
-	//      That is their session, so it wins outright and is not rate-limited.
-	//   2. AUTOPLAY — a first-time (or day-old) visitor. Allowed once per 24
-	//      hours, tracked in localStorage by the player itself.
-	//
-	// Honest about the platform: Chrome and Safari grant playback only after a
-	// real activation gesture — click, tap or keypress. A scroll does NOT
-	// count, so the scroll attempt is made once and, if the browser refuses,
-	// only genuine gestures retry. That keeps this from firing a play() on
-	// every scroll event for a visitor who will never be granted it.
-	let starting = false;
-	let settled = false;
-	let needsGesture = false;
-
-	async function tryStart(fromGesture: boolean) {
-		if (settled || starting || !queue.length) return;
-		if (needsGesture && !fromGesture) return;
-
-		starting = true;
-		try {
-			// A waiting resume is checked first and, if the browser still refuses,
-			// left waiting — it must not fall through and be marked settled.
-			if (player.resumePending) {
-				if (await player.resumeIfArmed()) {
-					open = true;
-					settled = true;
-				} else {
-					needsGesture = true;
-				}
-				return;
-			}
-			if (!player.canAutoplay()) {
-				// Either it already ran today, or a restored session says not to.
-				// Nothing further to attempt on this page load.
-				settled = true;
-				return;
-			}
-			// Expand ONLY when sound actually began on its own. Audio starting
-			// with no visible source is disorienting, so the panel shows what is
-			// playing and where the controls are. A manual press is deliberately
-			// excluded: they already know, and expanding under their cursor would
-			// move the very control they just used.
-			if (await player.autoplay()) {
-				open = true;
-				settled = true;
-			} else {
-				needsGesture = true;
-			}
-		} finally {
-			starting = false;
-		}
-	}
+	// The only handler left on the window is the click-outside that collapses
+	// the panel, and it never touches playback.
 
 	// A cheap 5-bar equaliser: no Web Audio analyser, no per-frame work — it is
 	// decoration, and decoration should not cost a rAF loop.
@@ -107,13 +61,7 @@
 </script>
 
 <!-- Must be top level: svelte:window cannot live inside a block. -->
-<svelte:window
-	onpointerdown={onPointerDown}
-	onscroll={() => tryStart(false)}
-	onkeydown={() => tryStart(true)}
-	ontouchstart={() => tryStart(true)}
-	onclick={() => tryStart(true)}
-/>
+<svelte:window onpointerdown={onPointerDown} />
 
 {#if queue.length}
 	<div class="pointer-events-none fixed right-6 bottom-6 z-40 hidden md:block">
