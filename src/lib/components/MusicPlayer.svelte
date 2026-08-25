@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { player, fmtTime } from '$lib/audio.svelte';
+	import { content } from '$lib/content.svelte';
+	import PixelIcon from './PixelIcon.svelte';
 	import type { Song } from '$lib/types';
 
 	// Floating widget — desktop only. The same controls live inside the drawer
@@ -33,54 +35,69 @@
 		player.duration > 0 ? Math.min(100, Math.max(0, (player.position / player.duration) * 100)) : 0
 	);
 
+	// The queue comes from the shared content store, which every route hydrates
+	// from its own load data. The prop is the hydration input on the landing
+	// page and stays supported, so this component works either way.
+	const queue = $derived(content.songs.length ? content.songs : songs);
+
 	$effect(() => {
-		player.load(songs);
+		player.load(queue);
 	});
 
-	// Try to start on the reader's first interaction.
+	// Starting playback without the reader asking.
 	//
-	// Honest about the platform: Chrome and Safari grant autoplay only on a
+	// Two separate cases, in priority order:
+	//
+	//   1. RESUME — they were listening last time and the tab closed mid-track.
+	//      That is their session, so it wins outright and is not rate-limited.
+	//   2. AUTOPLAY — a first-time (or day-old) visitor. Allowed once per 24
+	//      hours, tracked in localStorage by the player itself.
+	//
+	// Honest about the platform: Chrome and Safari grant playback only after a
 	// real activation gesture — click, tap or keypress. A scroll does NOT
-	// count, so scrolling alone may not start it; the attempt is made anyway
-	// because it costs nothing and some engines (and any prior interaction on
-	// the origin) do allow it. The first click or tap will always work.
-	//
-	// It fires ONCE and never fights the reader: if they pause, that decision
-	// stands for the rest of the visit.
-	let autoTried = false;
+	// count, so the scroll attempt is made once and, if the browser refuses,
+	// only genuine gestures retry. That keeps this from firing a play() on
+	// every scroll event for a visitor who will never be granted it.
+	let starting = false;
+	let settled = false;
+	let needsGesture = false;
 
-	async function tryAutoplay() {
-		if (autoTried || !songs.length) return;
-		autoTried = true;
-		// sessionStorage so "I paused this" survives navigation but not a new visit.
+	async function tryStart(fromGesture: boolean) {
+		if (settled || starting || !queue.length) return;
+		if (needsGesture && !fromGesture) return;
+
+		starting = true;
 		try {
-			if (sessionStorage.getItem('music-optout') === '1') return;
-		} catch {
-			/* private mode — just proceed */
-		}
-
-		await player.playAt(player.index);
-
-		// Expand ONLY when playback actually began on its own. Sound starting
-		// with no visible source is disorienting, so the panel shows what is
-		// playing and where the controls are.
-		//
-		// Gated on player.playing rather than on having called play(): the
-		// browser may refuse autoplay outright, and popping open a panel for
-		// audio that never started would be worse than staying collapsed.
-		//
-		// Manual starts are deliberately excluded — the reader pressed play
-		// themselves, so they already know, and expanding under their cursor
-		// would move the very control they just used.
-		if (player.playing) open = true;
-	}
-
-	function optOutOnPause() {
-		// Only a deliberate pause counts, not the gap between tracks.
-		try {
-			if (autoTried && !player.playing) sessionStorage.setItem('music-optout', '1');
-		} catch {
-			/* ignore */
+			// A waiting resume is checked first and, if the browser still refuses,
+			// left waiting — it must not fall through and be marked settled.
+			if (player.resumePending) {
+				if (await player.resumeIfArmed()) {
+					open = true;
+					settled = true;
+				} else {
+					needsGesture = true;
+				}
+				return;
+			}
+			if (!player.canAutoplay()) {
+				// Either it already ran today, or a restored session says not to.
+				// Nothing further to attempt on this page load.
+				settled = true;
+				return;
+			}
+			// Expand ONLY when sound actually began on its own. Audio starting
+			// with no visible source is disorienting, so the panel shows what is
+			// playing and where the controls are. A manual press is deliberately
+			// excluded: they already know, and expanding under their cursor would
+			// move the very control they just used.
+			if (await player.autoplay()) {
+				open = true;
+				settled = true;
+			} else {
+				needsGesture = true;
+			}
+		} finally {
+			starting = false;
 		}
 	}
 
@@ -92,13 +109,13 @@
 <!-- Must be top level: svelte:window cannot live inside a block. -->
 <svelte:window
 	onpointerdown={onPointerDown}
-	onscroll={tryAutoplay}
-	onkeydown={tryAutoplay}
-	ontouchstart={tryAutoplay}
-	onclick={tryAutoplay}
+	onscroll={() => tryStart(false)}
+	onkeydown={() => tryStart(true)}
+	ontouchstart={() => tryStart(true)}
+	onclick={() => tryStart(true)}
 />
 
-{#if songs.length}
+{#if queue.length}
 	<div class="pointer-events-none fixed right-6 bottom-6 z-40 hidden md:block">
 		<div
 			bind:this={root}
@@ -192,40 +209,15 @@
 								aria-label="Previous track"
 								class="border border-outline/40 p-1.5 text-on-surface-variant hover:border-primary-container hover:text-primary-container"
 							>
-								<svg
-									width="14"
-									height="14"
-									viewBox="0 0 24 24"
-									fill="currentColor"
-									aria-hidden="true"><path d="M6 5h2v14H6zm3 7l9-7v14z" /></svg
-								>
+								<PixelIcon icon="media-prev" size={16} />
 							</button>
 							<button
 								type="button"
-								onclick={() => {
-									player.toggle();
-									optOutOnPause();
-								}}
+								onclick={() => player.toggle()}
 								aria-label={player.playing ? 'Pause' : 'Play'}
 								class="border border-primary-container/60 bg-primary-container/10 p-2 text-primary-container hover:bg-primary-container/20"
 							>
-								{#if player.playing}
-									<svg
-										width="14"
-										height="14"
-										viewBox="0 0 24 24"
-										fill="currentColor"
-										aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z" /></svg
-									>
-								{:else}
-									<svg
-										width="14"
-										height="14"
-										viewBox="0 0 24 24"
-										fill="currentColor"
-										aria-hidden="true"><path d="M7 5l12 7-12 7z" /></svg
-									>
-								{/if}
+								<PixelIcon icon={player.playing ? 'media-pause' : 'media-play'} size={16} />
 							</button>
 							<button
 								type="button"
@@ -233,13 +225,7 @@
 								aria-label="Next track"
 								class="border border-outline/40 p-1.5 text-on-surface-variant hover:border-primary-container hover:text-primary-container"
 							>
-								<svg
-									width="14"
-									height="14"
-									viewBox="0 0 24 24"
-									fill="currentColor"
-									aria-hidden="true"><path d="M16 5h2v14h-2zM6 5l9 7-9 7z" /></svg
-								>
+								<PixelIcon icon="media-next" size={16} />
 							</button>
 						</div>
 
@@ -250,27 +236,13 @@
 								aria-label={player.muted ? 'Unmute' : 'Mute'}
 								class="text-outline hover:text-primary-container"
 							>
-								{#if player.muted}
-									<svg
-										width="15"
-										height="15"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="1.8"
-										aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9zM17 9l4 6M21 9l-4 6" /></svg
-									>
-								{:else}
-									<svg
-										width="15"
-										height="15"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="1.8"
-										aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9zM17 8a5 5 0 010 8" /></svg
-									>
-								{/if}
+								<!-- `hover` previews the result: pointing at it shows the state
+								     the click will produce, then morphs back on leave. -->
+								<PixelIcon
+									icon={player.muted ? 'volume-mute' : 'volume-up'}
+									hover={player.muted ? 'volume-up' : 'volume-mute'}
+									size={16}
+								/>
 							</button>
 							<input
 								type="range"
@@ -289,7 +261,7 @@
 					<div class="mt-4 border-t border-white/10 pt-3">
 						<div class="mb-2 font-mono text-xs tracking-[0.1em] text-outline uppercase">Queue</div>
 						<ul class="m-0 flex list-none flex-col gap-1 p-0">
-							{#each songs as s, i (s.id)}
+							{#each queue as s, i (s.id)}
 								<li>
 									<button
 										type="button"
@@ -314,27 +286,65 @@
 				</div>
 			{/if}
 
-			<!-- collapsed pill -->
-			<button
-				type="button"
-				onclick={() => (open = !open)}
-				aria-label={open ? 'Collapse music player' : 'Open music player'}
-				class="glass clip-corner group flex items-center gap-2.5 px-3.5 py-2.5 transition-colors hover:border-primary-container/50"
-			>
-				<span class="flex h-4 items-end gap-[2px]" aria-hidden="true">
-					{#each bars as b (b)}
-						<span
-							class="w-[2px] bg-primary-container transition-all"
-							style="height: {player.playing ? 30 + ((b * 37) % 70) : 15}%; {player.playing
-								? `animation: eq 900ms ${b * 120}ms ease-in-out infinite alternate`
-								: ''}"
-						></span>
-					{/each}
-				</span>
-				<span class="font-mono text-xs tracking-[0.1em] text-primary-container uppercase">
-					{player.playing ? 'Playing' : 'Audio'}
-				</span>
-			</button>
+			<!-- Collapsed pill.
+			     Transport lives here too, so pausing or skipping never costs an
+			     expand-collapse round trip — the panel is for seeking, volume and
+			     the queue. A <button> cannot contain buttons, so the pill is a
+			     container and the equaliser is its own toggle. -->
+			<div class="glass clip-corner flex items-center py-1.5 pr-1.5 pl-3.5">
+				<button
+					type="button"
+					onclick={() => (open = !open)}
+					aria-label={open ? 'Collapse music player' : 'Open music player'}
+					aria-expanded={open}
+					class="group flex items-center gap-2.5 py-1 pr-2 transition-colors"
+				>
+					<span class="flex h-4 items-end gap-[2px]" aria-hidden="true">
+						{#each bars as b (b)}
+							<span
+								class="w-[2px] bg-primary-container transition-all"
+								style="height: {player.playing ? 30 + ((b * 37) % 70) : 15}%; {player.playing
+									? `animation: eq 900ms ${b * 120}ms ease-in-out infinite alternate`
+									: ''}"
+							></span>
+						{/each}
+					</span>
+					<span class="font-mono text-xs tracking-[0.1em] text-primary-container uppercase">
+						{player.playing ? 'Playing' : 'Audio'}
+					</span>
+				</button>
+
+				<span class="mx-1.5 h-5 w-px bg-outline/30" aria-hidden="true"></span>
+
+				<div class="flex items-center gap-1">
+					<button
+						type="button"
+						onclick={() => player.prev()}
+						aria-label="Previous track"
+						class="p-1.5 text-on-surface-variant transition-colors hover:text-primary-container"
+					>
+						<PixelIcon icon="media-prev" size={15} />
+					</button>
+					<button
+						type="button"
+						onclick={() => player.toggle()}
+						aria-label={player.playing ? 'Pause' : 'Play'}
+						class="border border-primary-container/60 bg-primary-container/10 p-1.5 text-primary-container transition-colors hover:bg-primary-container/20"
+					>
+						<!-- One icon, not two branches: handing PixelIcon a different
+						     name is what triggers the morph. -->
+						<PixelIcon icon={player.playing ? 'media-pause' : 'media-play'} size={15} />
+					</button>
+					<button
+						type="button"
+						onclick={() => player.next()}
+						aria-label="Next track"
+						class="p-1.5 text-on-surface-variant transition-colors hover:text-primary-container"
+					>
+						<PixelIcon icon="media-next" size={15} />
+					</button>
+				</div>
+			</div>
 		</div>
 	</div>
 {/if}

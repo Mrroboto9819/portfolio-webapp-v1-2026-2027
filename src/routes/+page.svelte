@@ -17,9 +17,24 @@
 	import Seo from '$lib/components/Seo.svelte';
 	import { reveal, revealStagger } from '$lib/motion';
 	import { ui } from '$lib/i18n';
+	import { content } from '$lib/content.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	// Hand this route's load data to the shared content store, so the player,
+	// the drawer and anything else that needs it read one standardised shape
+	// instead of receiving the same values as props down three levels. It is an
+	// effect, not a one-off call: `data` is replaced on every navigation.
+	$effect(() => {
+		content.hydrate({
+			locale: data.locale,
+			profile: data.profile,
+			sections: data.sections,
+			social: data.social,
+			songs: data.songs
+		});
+	});
 
 	const ACCENTS = ['#00f3ff', '#ffabf3', '#a1f21d'];
 

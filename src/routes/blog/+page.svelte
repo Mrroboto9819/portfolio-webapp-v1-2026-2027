@@ -9,12 +9,26 @@
 	import { goto } from '$app/navigation';
 	import { page as pageState } from '$app/state';
 	import { ui } from '$lib/i18n';
+	import { content } from '$lib/content.svelte';
 	import HudPanel from '$lib/components/HudPanel.svelte';
 	import SectionHeading from '$lib/components/SectionHeading.svelte';
 	import { revealStagger } from '$lib/motion';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	// Hand this route's load data to the shared content store, so the player,
+	// the drawer and anything else that needs it read one standardised shape
+	// instead of receiving the same values as props down three levels. It is an
+	// effect, not a one-off call: `data` is replaced on every navigation.
+	$effect(() => {
+		content.hydrate({
+			locale: data.locale,
+			social: data.social,
+			songs: data.songs,
+			posts: data.posts
+		});
+	});
 
 	// The URL is the source of truth; the box only mirrors it, so back and
 	// refresh cannot leave a stale term above a differently-filtered list.

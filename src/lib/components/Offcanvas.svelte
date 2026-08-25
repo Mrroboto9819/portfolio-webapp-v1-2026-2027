@@ -4,6 +4,7 @@
 	import { brandColor } from '$lib/brand';
 	import { gsap } from '$lib/motion';
 	import { player } from '$lib/audio.svelte';
+	import { content } from '$lib/content.svelte';
 	import { effects } from '$lib/effects.svelte';
 	import type { Social, Song } from '$lib/types';
 
@@ -21,8 +22,11 @@
 
 	// Same shared player as the floating widget — one audio element, two
 	// surfaces. Mobile has no floating pill, so this is its only transport.
+	// The queue comes from the shared content store, with the prop as the
+	// fallback for any caller that still passes one.
+	const queue = $derived(content.songs.length ? content.songs : songs);
 	$effect(() => {
-		if (songs.length) player.load(songs);
+		if (queue.length) player.load(queue);
 	});
 
 	let panel: HTMLElement;
@@ -231,7 +235,7 @@
 	</div>
 
 	<!-- player transport: the drawer is the only control surface on mobile -->
-	{#if songs.length}
+	{#if queue.length}
 		<div data-oc-item class="shrink-0 border-t border-white/10 px-5 py-4">
 			<div class="mb-2.5 flex items-center justify-between">
 				<span class="font-mono text-xs tracking-[0.14em] text-secondary uppercase">// AUDIO</span>
