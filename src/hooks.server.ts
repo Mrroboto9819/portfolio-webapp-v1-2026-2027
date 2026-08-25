@@ -258,7 +258,54 @@ const analytics: Handle = async ({ event, resolve }) => {
 	return response;
 };
 
+/**
+ * Response headers: add the protective ones, remove the talkative ones.
+ *
+ * Runs OUTERMOST so it sees every response the app produces — pages, API
+ * routes, errors and redirects alike. A header set on only some of those is a
+ * header an attacker simply asks for on the others.
+ *
+ * The CSP itself is configured in svelte.config.js, because SvelteKit has to
+ * hash its own inline bootstrap script to emit one without 'unsafe-inline'.
+ * Everything here is what that mechanism does not cover.
+ */
+const securityHeaders: Handle = async ({ event, resolve }) => {
+	const response = await resolve(event);
+	const h = response.headers;
+
+	// Content sniffing turns an uploaded file the server calls text/plain into
+	// whatever the browser would rather it be, including a script.
+	h.set('X-Content-Type-Options', 'nosniff');
+	// frame-ancestors in the CSP is the modern control; this is the same rule
+	// for anything that still only understands the legacy header.
+	h.set('X-Frame-Options', 'DENY');
+	// Full URLs (with their query strings — the filters live there) must not
+	// travel to another origin in a Referer header.
+	h.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+	h.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+	h.set('Cross-Origin-Opener-Policy', 'same-origin');
+	// EXPLICITLY OFF, not omitted. The legacy XSS auditor is deprecated and its
+	// filtering has itself been used to introduce vulnerabilities, so the
+	// correct modern value is 0 — and MinIO sends `1; mode=block` on /cdn,
+	// which this overrides for everything the app serves.
+	h.set('X-XSS-Protection', '0');
+
+	// HSTS only over TLS: sent on a plain-HTTP dev origin it would pin
+	// localhost to https and make the dev server unreachable.
+	if (event.url.protocol === 'https:') {
+		h.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+	}
+
+	// Framework fingerprinting. It tells an attacker which advisories to read
+	// and buys us nothing in return.
+	h.delete('x-sveltekit-page');
+	h.delete('X-Powered-By');
+
+	return response;
+};
+
 export const handle = sequence(
+	securityHeaders,
 	locale,
 	session,
 	csrfGuard,

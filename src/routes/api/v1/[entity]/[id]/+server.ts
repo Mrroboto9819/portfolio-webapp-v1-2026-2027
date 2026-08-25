@@ -4,15 +4,18 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getRepo, isEntityName } from '$lib/server/repositories';
+import { publicOne } from '$lib/server/publicView';
 
 function repoOr404(name: string) {
 	if (!isEntityName(name)) error(404, `Unknown entity '${name}'`);
 	return getRepo(name);
 }
 
-export const GET: RequestHandler = async ({ params }) => {
+export const GET: RequestHandler = async ({ params, locals }) => {
 	const repo = repoOr404(params.entity);
-	const doc = await repo.findById(params.id);
+	const doc = publicOne(params.entity, await repo.findById(params.id), locals.session);
+	// 404 rather than 403 for a draft: the same answer as a row that does not
+	// exist, so the endpoint cannot be used to confirm one is being written.
 	if (!doc) error(404, 'Not found');
 	return json(doc);
 };
