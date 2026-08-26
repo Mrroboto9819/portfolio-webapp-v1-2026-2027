@@ -209,6 +209,52 @@ shell history):
 access secret. `MONGODB_DB` defaults to `portafolio`; set a parameter only if
 that ever changes.)
 
+### Mailgun (password recovery)
+
+`/admin/recover` mails a temporary password to the address on an account. It
+stays inert until these exist — the page says so rather than pretending to
+send:
+
+```sh
+ aws ssm put-parameter --name /portafolio/MAILGUN_API_KEY --type SecureString --value '<private API key>'
+ aws ssm put-parameter --name /portafolio/MAILGUN_DOMAIN  --type String       --value 'mg.pablocabrera.dev'
+ aws ssm put-parameter --name /portafolio/MAILGUN_FROM    --type String       --value 'Portafolio <no-reply@mg.pablocabrera.dev>'
+ # EU-region Mailgun domains only:
+ aws ssm put-parameter --name /portafolio/MAILGUN_BASE_URL --type String      --value 'https://api.eu.mailgun.net'
+```
+
+Anything directly under `/portafolio/` becomes one line of the instance's env
+file, so no Terraform change is needed — the next deploy picks them up. To
+apply them without waiting for a push:
+
+```sh
+aws ssm send-command --instance-ids "$(terraform -chdir=infra/terraform output -raw instance_id)" \
+  --document-name AWS-RunShellScript \
+  --parameters 'commands=["/usr/local/bin/portafolio-redeploy latest"]'
+```
+
+**On k3s** the same keys go into the existing Secret, and the pod has to
+restart to see them:
+
+```sh
+kubectl -n portafolio create secret generic portafolio-env \
+  --from-literal=MAILGUN_API_KEY='<private API key>' \
+  --from-literal=MAILGUN_DOMAIN='mg.pablocabrera.dev' \
+  --from-literal=MAILGUN_FROM='Portafolio <no-reply@mg.pablocabrera.dev>' \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl -n portafolio rollout restart deployment/portafolio-beta   # develop
+kubectl -n portafolio rollout restart deployment/portafolio-web    # main
+```
+
+That `create --dry-run | apply` form MERGES into the Secret. A plain `kubectl
+create secret` fails on one that exists, and `kubectl replace` drops every key
+not restated — taking `MONGODB_URI` with it.
+
+Beta and production can share one Mailgun domain; the message names the
+account, not the environment, so give beta its own `MAILGUN_FROM` only if you
+want to tell them apart in an inbox.
+
 **GHCR visibility.** The first `main` push after this lands builds and
 publishes the image. GHCR packages default to private. Either make the
 package public (github.com → your profile → Packages →

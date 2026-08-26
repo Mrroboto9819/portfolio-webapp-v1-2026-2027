@@ -10,19 +10,29 @@
 // so a user created here signs in with no migration step. Hashes never leave
 // this module: listUsers projects them away.
 
+import { randomBytes } from 'node:crypto';
 import { hash as argonHash } from '@node-rs/argon2';
 import { ObjectId } from 'mongodb';
 import { getDb } from './db';
-import { accessOf, type Access } from './permissions';
+import { accessOf, canSignIn, type Access } from './permissions';
 
 export type AdminUserRow = {
 	id: string;
 	username: string;
 	role: string;
 	createdAt?: string;
+	/** Where a recovery message goes. Optional — an account without one simply
+	 *  cannot be recovered by email, which is a deliberate, visible state. */
+	email?: string;
+	/** Set by a recovery: the temporary password must be replaced at next sign-in. */
+	mustChangePassword?: boolean;
 } & Access;
 
-const USERNAME = /^[a-z0-9._-]{3,32}$/i;
+// `@` and `+` are allowed because the existing account IS an email address —
+// this project's convention — and a rule that rejects the operator's own
+// username would be a rule that has never been read.
+const USERNAME = /^[a-z0-9._+@-]{3,64}$/i;
+const EMAIL = /^[^@\s]+@[^@\s.]+\.[^@\s]+$/;
 /** NIST-style: length is the requirement, composition rules are not. */
 const MIN_PASSWORD = 10;
 
@@ -39,8 +49,36 @@ export async function listUsers(): Promise<AdminUserRow[]> {
 		username: String(d.username ?? ''),
 		role: String(d.role ?? 'admin'),
 		createdAt: d.createdAt instanceof Date ? d.createdAt.toISOString() : undefined,
+		...(typeof d.email === 'string' && d.email ? { email: d.email } : {}),
+		mustChangePassword: d.mustChangePassword === true,
 		...accessOf(d)
 	}));
+}
+
+/**
+ * Where a recovery message for this account would go.
+ *
+ * The stored `email` wins; failing that, the username itself when it IS an
+ * address — which is how the original account was created, and asking the
+ * operator to retype their own address into a second field to recover it would
+ * be pure ceremony.
+ */
+export function recoveryAddress(doc: Record<string, unknown>): string | null {
+	const email = typeof doc.email === 'string' ? doc.email.trim() : '';
+	if (EMAIL.test(email)) return email;
+	const username = typeof doc.username === 'string' ? doc.username.trim() : '';
+	return EMAIL.test(username) ? username : null;
+}
+
+export async function setEmail(id: string, email: string): Promise<void> {
+	const clean = email.trim();
+	if (clean && !EMAIL.test(clean)) throw new Error('That does not look like an email address');
+	const col = await users();
+	const res = await col.updateOne(
+		{ _id: new ObjectId(id) },
+		clean ? { $set: { email: clean } } : { $unset: { email: '' } }
+	);
+	if (!res.matchedCount) throw new Error('No such user');
 }
 
 /**
@@ -112,13 +150,95 @@ export async function setPassword(id: string, password: string): Promise<void> {
 	const col = await users();
 	const res = await col.updateOne(
 		{ _id: new ObjectId(id) },
-		{ $set: { passwordHash: await argonHash(password) } }
+		{
+			$set: { passwordHash: await argonHash(password) },
+			// Choosing your own password clears the temporary-password state:
+			// this is exactly the act the flag was waiting for.
+			$unset: { mustChangePassword: '' }
+		}
 	);
 	if (!res.matchedCount) throw new Error('No such user');
 
 	// A password change is a statement that the old credential should stop
 	// working — that includes any session still running on it.
 	await revokeSessionsFor(id);
+}
+
+/**
+ * The alphabet a temporary password is drawn from.
+ *
+ * No 0/O, 1/l/I: this string is read out of an email and typed by hand, often
+ * from a phone, and a character someone cannot tell apart from another is a
+ * support request waiting to happen. 28 symbols over 16 characters is ~77 bits,
+ * far past anything that could be guessed before it is replaced.
+ */
+const TEMP_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const TEMP_LENGTH = 16;
+
+function temporaryPassword(): string {
+	// rejection-free: 32 symbols divides 256 evenly, so a plain modulo is
+	// uniform here and no byte has to be thrown away.
+	const bytes = randomBytes(TEMP_LENGTH);
+	let out = '';
+	for (let i = 0; i < TEMP_LENGTH; i++) {
+		out += TEMP_ALPHABET[bytes[i] % TEMP_ALPHABET.length];
+		// Grouped for legibility — the separator is part of the password.
+		if (i % 4 === 3 && i !== TEMP_LENGTH - 1) out += '-';
+	}
+	return out;
+}
+
+export type Recovery = {
+	username: string;
+	email: string;
+	password: string;
+};
+
+/**
+ * Issue a temporary password for whoever owns `identifier`.
+ *
+ * Returns null when there is nothing to do — no such account, or an account
+ * with no address to send to. The CALLER must treat null and success the same
+ * in what it tells the browser, or this becomes an oracle for which usernames
+ * and emails exist.
+ *
+ * The new password is returned, never stored in the clear: the hash is what
+ * lands in Mongo, and the plaintext exists only long enough to be handed to
+ * the mailer. Every session for that user is ended — a recovery is the case
+ * where an attacker may be the one holding the old session.
+ */
+export async function issueTemporaryPassword(identifier: string): Promise<Recovery | null> {
+	const id = identifier.trim();
+	if (!id) return null;
+
+	const col = await users();
+	// Case-insensitive on both fields: email addresses are not case-sensitive
+	// in practice, and someone recovering an account types what they remember.
+	const pattern = new RegExp(`^${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+	const doc = await col.findOne({ $or: [{ username: pattern }, { email: pattern }] });
+	if (!doc) return null;
+
+	const email = recoveryAddress(doc);
+	if (!email) return null;
+
+	// Both flags false means the account is dormant and cannot sign in at all;
+	// mailing it a working password would quietly undo that.
+	if (!canSignIn(accessOf(doc))) return null;
+
+	const password = temporaryPassword();
+	await col.updateOne(
+		{ _id: doc._id },
+		{
+			$set: {
+				passwordHash: await argonHash(password),
+				mustChangePassword: true,
+				passwordResetAt: new Date()
+			}
+		}
+	);
+	await revokeSessionsFor(doc._id.toString());
+
+	return { username: String(doc.username ?? ''), email, password };
 }
 
 /**

@@ -188,7 +188,24 @@ export const UI: Record<Locale, Record<string, string>> = {
 		'admin.cannotSignIn': 'cannot sign in',
 		'admin.username': 'Username',
 		'admin.created': 'Created',
-		'admin.actions': 'Actions'
+		'admin.actions': 'Actions',
+		'admin.email': 'Email',
+		'admin.emailHelp':
+			'Where a recovery message goes. Without one, this account cannot be recovered by email.',
+		'admin.lostAccess': 'Lost access?',
+		'admin.recoverTitle': 'Lost access',
+		'admin.recoverIntro':
+			'Enter your username or the email on your account. We will send a temporary password you can sign in with, then choose a new one.',
+		'admin.recoverField': 'Username or email',
+		'admin.recoverSend': 'Send temporary password',
+		'admin.recoverSending': 'Sending…',
+		'admin.recoverAfter':
+			'The temporary password works once — signing in with it asks you for a new one straight away. Check spam if it does not arrive within a few minutes.',
+		'admin.recoverNoMail':
+			'Email is not configured on this server, so recovery cannot send anything yet.',
+		'admin.backToSignIn': '← Back to sign in',
+		'admin.tempPasswordNotice':
+			'You signed in with a temporary password from a recovery email. Choose a new one below — the rest of the admin opens once you do.'
 	},
 	es: {
 		'nav.about': 'Perfil',
@@ -268,7 +285,24 @@ export const UI: Record<Locale, Record<string, string>> = {
 		'admin.cannotSignIn': 'no puede entrar',
 		'admin.username': 'Usuario',
 		'admin.created': 'Creado',
-		'admin.actions': 'Acciones'
+		'admin.actions': 'Acciones',
+		'admin.email': 'Correo',
+		'admin.emailHelp':
+			'A dónde llega el mensaje de recuperación. Sin él, esta cuenta no se puede recuperar por correo.',
+		'admin.lostAccess': '¿Perdiste el acceso?',
+		'admin.recoverTitle': 'Acceso perdido',
+		'admin.recoverIntro':
+			'Escribe tu usuario o el correo de tu cuenta. Te enviaremos una contraseña temporal para entrar y luego eliges una nueva.',
+		'admin.recoverField': 'Usuario o correo',
+		'admin.recoverSend': 'Enviar contraseña temporal',
+		'admin.recoverSending': 'Enviando…',
+		'admin.recoverAfter':
+			'La contraseña temporal sirve una vez — al entrar con ella se te pide una nueva de inmediato. Revisa el spam si no llega en unos minutos.',
+		'admin.recoverNoMail':
+			'El correo no está configurado en este servidor, así que la recuperación aún no puede enviar nada.',
+		'admin.backToSignIn': '← Volver a entrar',
+		'admin.tempPasswordNotice':
+			'Entraste con una contraseña temporal del correo de recuperación. Elige una nueva abajo — el resto del admin se abre en cuanto lo hagas.'
 	}
 };
 

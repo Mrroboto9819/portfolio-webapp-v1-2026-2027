@@ -65,7 +65,18 @@ export const refreshTtl = () => ttl('JWT_REFRESH_TTL_SECONDS', 60 * 60 * 8); // 
  * the user document at login and at every refresh rotation (5 minutes at most),
  * so a revoked privilege takes effect within one access-token lifetime.
  */
-export type AdminSession = { sub: string; username: string; role: string } & Access;
+export type AdminSession = {
+	sub: string;
+	username: string;
+	role: string;
+	/**
+	 * True while the account is on a password issued by the recovery flow.
+	 * The route guard pins such a session to the account screen until it is
+	 * replaced, so a password that travelled through email cannot quietly
+	 * become the permanent one.
+	 */
+	mustChangePassword?: boolean;
+} & Access;
 
 function key(): Uint8Array {
 	const secret = env.JWT_ACCESS_SECRET;
@@ -84,6 +95,7 @@ type UserDoc = {
 	role?: string;
 	isAdmin?: boolean;
 	isSuperAdmin?: boolean;
+	mustChangePassword?: boolean;
 };
 
 /**
@@ -113,24 +125,47 @@ export async function verifyCredentials(
 	// cannot sign in even with the correct password. That is what makes the
 	// dormant state safe: a leaked hash on an unflagged user opens nothing.
 	const access = accessOf(user as unknown as Record<string, unknown>);
-	if (!canSignIn(access)) return null;
+	if (!canSignIn(access)) {
+		// The BROWSER is told "invalid credentials" like every other failure —
+		// telling the two apart is how usernames get enumerated. The operator,
+		// though, needs to be able to tell them apart, because "correct password,
+		// no flags" looks identical to a typo from the outside and is the single
+		// most likely reason a working account suddenly cannot sign in.
+		//
+		// Note the strict === true in accessOf: a flag added through Atlas's
+		// editor as the STRING "true" is not a grant, and this is where that
+		// shows up.
+		console.warn(
+			`[auth] ${username}: password correct but no privilege flag ` +
+				`(isAdmin=${JSON.stringify(user.isAdmin)}, isSuperAdmin=${JSON.stringify(user.isSuperAdmin)}) ` +
+				'— set isSuperAdmin to boolean true on this document'
+		);
+		return null;
+	}
 
 	return {
 		sub: user._id.toString(),
 		username: user.username,
 		role: user.role ?? 'admin',
+		mustChangePassword: user.mustChangePassword === true,
 		...access
 	};
 }
 
 /**
- * Re-read the privilege flags for a user id.
+ * Re-read the live account state for a user id.
  *
  * Used on refresh rotation so a flag revoked in the database reaches a live
  * session without waiting for it to expire. A user deleted mid-session comes
  * back with no flags, which fails canSignIn and ends the session.
+ *
+ * mustChangePassword rides along for the same reason: rebuilding the session
+ * from the flags alone would drop it, and the temporary-password pin would
+ * quietly lift itself at the first rotation — five minutes after sign-in.
  */
-export async function currentAccess(userId: string): Promise<Access> {
+export async function currentAccess(
+	userId: string
+): Promise<Access & { mustChangePassword: boolean }> {
 	const db = await getDb();
 	const { ObjectId } = await import('mongodb');
 	let doc: Record<string, unknown> | null = null;
@@ -140,9 +175,9 @@ export async function currentAccess(userId: string): Promise<Access> {
 			unknown
 		> | null;
 	} catch {
-		return { isAdmin: false, isSuperAdmin: false }; // unparseable id
+		return { isAdmin: false, isSuperAdmin: false, mustChangePassword: false }; // unparseable id
 	}
-	return accessOf(doc);
+	return { ...accessOf(doc), mustChangePassword: doc?.mustChangePassword === true };
 }
 
 export async function createSessionToken(session: AdminSession): Promise<string> {
@@ -150,7 +185,8 @@ export async function createSessionToken(session: AdminSession): Promise<string>
 		username: session.username,
 		role: session.role,
 		isAdmin: session.isAdmin,
-		isSuperAdmin: session.isSuperAdmin
+		isSuperAdmin: session.isSuperAdmin,
+		mustChangePassword: session.mustChangePassword === true
 	})
 		.setProtectedHeader({ alg: 'HS256' })
 		.setSubject(session.sub)
@@ -173,6 +209,7 @@ export async function readSessionToken(token: string | undefined): Promise<Admin
 			sub: payload.sub,
 			username: String(payload.username ?? ''),
 			role: String(payload.role ?? ''),
+			mustChangePassword: payload.mustChangePassword === true,
 			...access
 		};
 	} catch {
