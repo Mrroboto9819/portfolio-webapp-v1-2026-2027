@@ -65,6 +65,19 @@ RUN bun install --frozen-lockfile --ignore-scripts --production
 FROM oven/bun:${BUN_VERSION}-alpine AS runtime
 WORKDIR /app
 
+# The admin's YouTube module shells out to these two, so they are a RUNTIME
+# dependency of the image, not a build tool:
+#
+#   ffmpeg  — transcodes the downloaded audio to mp3 (fluent-ffmpeg drives it)
+#   yt-dlp  — resolves and streams the audio
+#
+# yt-dlp comes from Alpine's package repository rather than pip so the image
+# needs no Python toolchain of its own. It is the piece that ages: YouTube
+# changes its player and an old yt-dlp starts failing, which shows up as a
+# "yt-dlp said:" message in the admin. The fix is rebuilding this image, so
+# expect to do that occasionally even when the app has not changed.
+RUN apk add --no-cache ffmpeg yt-dlp
+
 COPY --from=build     /app/build        ./build
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build     /app/package.json ./package.json

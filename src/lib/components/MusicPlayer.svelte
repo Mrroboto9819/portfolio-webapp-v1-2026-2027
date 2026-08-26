@@ -103,11 +103,26 @@
 						</button>
 					</div>
 
-					<div class="mb-1 truncate font-mono text-xs text-on-surface">
-						{player.current?.title ?? '—'}
-					</div>
-					<div class="mb-3 truncate font-mono text-xs text-outline">
-						{player.current?.artist ?? ''}
+					<!-- Cover art, when the track has any. Served from our own /cdn
+					     like every other image — a grabbed track copies the thumbnail
+					     into the bucket rather than hotlinking it. -->
+					<div class="mb-3 flex items-center gap-3">
+						{#if player.current?.image}
+							<img
+								src={player.current.image}
+								alt=""
+								class="h-12 w-12 shrink-0 border border-white/10 object-cover"
+								loading="lazy"
+							/>
+						{/if}
+						<div class="min-w-0">
+							<div class="truncate font-mono text-xs text-on-surface">
+								{player.current?.title ?? '—'}
+							</div>
+							<div class="mt-0.5 truncate font-mono text-xs text-outline">
+								{player.current?.artist ?? ''}
+							</div>
+						</div>
 					</div>
 
 					<!-- seek -->

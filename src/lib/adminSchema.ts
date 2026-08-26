@@ -227,10 +227,30 @@ export const SCHEMAS: Record<EntityName, EntitySchema> = {
 			{ name: 'artist', label: 'Artist', type: 'text', column: true },
 			{ name: 'url', label: 'Audio file', type: 'audio', required: true },
 			{
+				name: 'image',
+				label: 'Cover art',
+				type: 'image',
+				help: 'Shown in both players. A grab copies the video thumbnail here.'
+			},
+			{
 				name: 'credit',
 				label: 'Attribution',
 				type: 'text',
 				help: 'Required by most royalty-free licences.'
+			},
+			{
+				name: 'category',
+				label: 'Category',
+				type: 'text',
+				column: true,
+				help: 'Free label the playlist filters by — e.g. focus, synthwave.'
+			},
+			{
+				name: 'owner',
+				label: 'Owner',
+				type: 'text',
+				column: true,
+				help: 'Admin username this track belongs to. Grabs fill it automatically.'
 			},
 			...common
 		]

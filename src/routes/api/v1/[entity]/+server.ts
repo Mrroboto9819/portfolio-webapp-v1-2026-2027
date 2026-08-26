@@ -9,6 +9,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getRepo, isEntityName } from '$lib/server/repositories';
 import { mayListInactive, publicFilter } from '$lib/server/publicView';
+import { applyPublishPolicy } from '$lib/server/permissions';
 
 function repoOr404(name: string) {
 	if (!isEntityName(name)) error(404, `Unknown entity '${name}'`);
@@ -24,7 +25,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 	return json({ items: publicFilter(params.entity, items, locals.session) });
 };
 
-export const POST: RequestHandler = async ({ params, request }) => {
+export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const repo = repoOr404(params.entity);
 	let body: unknown;
 	try {
@@ -35,6 +36,11 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	if (!body || typeof body !== 'object' || Array.isArray(body)) {
 		error(400, 'Body must be an object');
 	}
-	const created = await repo.create(body as Record<string, unknown>);
+	// Who may write here at all is settled in hooks; what they may make PUBLIC
+	// is settled here, so the API cannot be the way around the admin's rule.
+	const patch = applyPublishPolicy(locals.session, body as Record<string, unknown>, {
+		creating: true
+	});
+	const created = await repo.create(patch);
 	return json(created, { status: 201 });
 };

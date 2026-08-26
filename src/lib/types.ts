@@ -210,6 +210,17 @@ export type Song = BaseDoc & {
 	url: string;
 	/** Optional attribution line for royalty-free tracks. */
 	credit?: string;
+	/** Free-text shelf label — "focus", "synthwave"… Groups the admin playlist. */
+	category?: string;
+	/** Username of the admin whose selection this track belongs to. */
+	owner?: string;
+	/**
+	 * Cover art, in OUR bucket — a grabbed track copies the video thumbnail in
+	 * rather than hotlinking it. Keeping the bytes means the public page needs
+	 * no CSP exception for YouTube's image hosts and cannot break when they
+	 * change a URL or drop an old thumbnail.
+	 */
+	image?: string;
 };
 
 export type PostStatus = 'draft' | 'published';

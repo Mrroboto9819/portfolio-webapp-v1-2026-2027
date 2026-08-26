@@ -14,6 +14,8 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Collection } from 'mongodb';
 import { getDb } from './db';
+import { currentAccess, type AdminSession } from './auth';
+import { canSignIn } from './permissions';
 
 export type SessionDoc = {
 	_id?: unknown;
@@ -88,10 +90,10 @@ export type ConsumeResult =
 	| {
 			ok: true;
 			token: string;
-			session: { sub: string; username: string; role: string };
+			session: AdminSession;
 			expiresAt: Date;
 	  }
-	| { ok: false; reason: 'unknown' | 'expired' | 'replayed' };
+	| { ok: false; reason: 'unknown' | 'expired' | 'replayed' | 'revoked' };
 
 /**
  * Exchange a refresh token for the next one.
@@ -121,6 +123,15 @@ export async function consumeRefreshToken(token: string): Promise<ConsumeResult>
 		return { ok: false, reason: 'expired' };
 	}
 
+	// Privilege is re-read from the user document on every rotation rather than
+	// replayed from the session row. That is what bounds a revoked flag — or a
+	// deleted user — to one access-token lifetime instead of the full session.
+	const access = await currentAccess(doc.userId);
+	if (!canSignIn(access)) {
+		await col.deleteOne({ _id: doc._id });
+		return { ok: false, reason: 'revoked' };
+	}
+
 	const next = newRefreshToken();
 	const nextHash = hashToken(next);
 	await col.updateOne(
@@ -134,7 +145,7 @@ export async function consumeRefreshToken(token: string): Promise<ConsumeResult>
 	return {
 		ok: true,
 		token: next,
-		session: { sub: doc.userId, username: doc.username, role: doc.role },
+		session: { sub: doc.userId, username: doc.username, role: doc.role, ...access },
 		expiresAt: doc.expiresAt
 	};
 }

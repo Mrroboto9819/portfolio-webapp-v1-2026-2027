@@ -22,6 +22,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import { verify as argonVerify } from '@node-rs/argon2';
 import { env } from '$env/dynamic/private';
 import { getDb } from './db';
+import { accessOf, canSignIn, type Access } from './permissions';
 
 export const SESSION_COOKIE = 'admin_access';
 export const REFRESH_COOKIE = 'admin_refresh';
@@ -55,7 +56,16 @@ export const accessTtl = () => ttl('JWT_ACCESS_TTL_SECONDS', 300); // 5 min
  */
 export const refreshTtl = () => ttl('JWT_REFRESH_TTL_SECONDS', 60 * 60 * 8); // 8h
 
-export type AdminSession = { sub: string; username: string; role: string };
+/**
+ * The identity every request carries.
+ *
+ * The two privilege flags travel INSIDE the signed access token rather than
+ * being looked up per request: the point of a stateless access token is that
+ * verifying it costs a signature check and no round trip. They are re-read from
+ * the user document at login and at every refresh rotation (5 minutes at most),
+ * so a revoked privilege takes effect within one access-token lifetime.
+ */
+export type AdminSession = { sub: string; username: string; role: string } & Access;
 
 function key(): Uint8Array {
 	const secret = env.JWT_ACCESS_SECRET;
@@ -72,12 +82,14 @@ type UserDoc = {
 	username: string;
 	passwordHash: string;
 	role?: string;
+	isAdmin?: boolean;
+	isSuperAdmin?: boolean;
 };
 
 /**
  * Verify a username/password pair against the users collection.
- * Returns null for both "no such user" and "wrong password" — the caller must
- * not distinguish them in what it tells the client.
+ * Returns null for "no such user", "wrong password" AND "no privilege flags" —
+ * the caller must not distinguish them in what it tells the client.
  */
 export async function verifyCredentials(
 	username: string,
@@ -97,11 +109,49 @@ export async function verifyCredentials(
 	}
 	if (!ok) return null;
 
-	return { sub: user._id.toString(), username: user.username, role: user.role ?? 'admin' };
+	// Both flags default false, so an account nobody has granted anything to
+	// cannot sign in even with the correct password. That is what makes the
+	// dormant state safe: a leaked hash on an unflagged user opens nothing.
+	const access = accessOf(user as unknown as Record<string, unknown>);
+	if (!canSignIn(access)) return null;
+
+	return {
+		sub: user._id.toString(),
+		username: user.username,
+		role: user.role ?? 'admin',
+		...access
+	};
+}
+
+/**
+ * Re-read the privilege flags for a user id.
+ *
+ * Used on refresh rotation so a flag revoked in the database reaches a live
+ * session without waiting for it to expire. A user deleted mid-session comes
+ * back with no flags, which fails canSignIn and ends the session.
+ */
+export async function currentAccess(userId: string): Promise<Access> {
+	const db = await getDb();
+	const { ObjectId } = await import('mongodb');
+	let doc: Record<string, unknown> | null = null;
+	try {
+		doc = (await db.collection('users').findOne({ _id: new ObjectId(userId) })) as Record<
+			string,
+			unknown
+		> | null;
+	} catch {
+		return { isAdmin: false, isSuperAdmin: false }; // unparseable id
+	}
+	return accessOf(doc);
 }
 
 export async function createSessionToken(session: AdminSession): Promise<string> {
-	return new SignJWT({ username: session.username, role: session.role })
+	return new SignJWT({
+		username: session.username,
+		role: session.role,
+		isAdmin: session.isAdmin,
+		isSuperAdmin: session.isSuperAdmin
+	})
 		.setProtectedHeader({ alg: 'HS256' })
 		.setSubject(session.sub)
 		.setIssuedAt()
@@ -114,10 +164,16 @@ export async function readSessionToken(token: string | undefined): Promise<Admin
 	try {
 		const { payload } = await jwtVerify(token, key());
 		if (!payload.sub) return null;
+		// The claims are read through accessOf like a user document would be, so
+		// a token minted before the flags existed decodes as no privilege rather
+		// than as undefined leaking into a check.
+		const access = accessOf(payload as unknown as Record<string, unknown>);
+		if (!canSignIn(access)) return null;
 		return {
 			sub: payload.sub,
 			username: String(payload.username ?? ''),
-			role: String(payload.role ?? '')
+			role: String(payload.role ?? ''),
+			...access
 		};
 	} catch {
 		return null; // expired, tampered, or signed with a different key

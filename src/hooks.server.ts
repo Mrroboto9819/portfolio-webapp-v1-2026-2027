@@ -2,10 +2,16 @@
 //   1. session      — resolve the access cookie, or silently rotate the refresh
 //                    cookie, into event.locals
 //   2. csrfGuard    — block cross-origin writes on /api/*
-//   3. adminGuard   — /admin/* requires a session (except the login page)
-//   4. writeGuard   — /api/* mutations require a session or the API token
+//   3. adminGuard   — /admin/* requires a session (except the login page), and
+//                    a music-only admin only reaches the music screens
+//   4. writeGuard   — /api/* mutations require a session or the API token, and
+//                    a music-only admin only writes the songs it edits
 //
 // Reads of /api/v1/* stay public: that content is the portfolio itself.
+//
+// Privilege is enforced HERE, not in the pages. A screen a user cannot open is
+// also a screen whose endpoints refuse them: hiding a nav link is presentation,
+// and presentation is not access control.
 
 import { redirect, json, type Handle } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
@@ -21,6 +27,12 @@ import {
 } from '$lib/server/auth';
 import { consumeRefreshToken, safeEqual } from '$lib/server/sessions';
 import { recordVisit } from '$lib/server/visits';
+import {
+	MUSIC_ADMIN_HOME,
+	canOpenAdminPath,
+	canWriteApiPath,
+	isSuper
+} from '$lib/server/permissions';
 import { LOCALES, apiMessage, resolveLocale } from '$lib/i18n';
 
 const ALLOWED_HOSTS = new Set([
@@ -145,8 +157,15 @@ const adminGuard: Handle = async ({ event, resolve }) => {
 	const { pathname, search } = event.url;
 
 	if (pathname.startsWith('/admin') && pathname !== LOGIN_PATH) {
-		if (!event.locals.session) {
+		const session = event.locals.session;
+		if (!session) {
 			redirect(303, `${LOGIN_PATH}?next=${encodeURIComponent(pathname + search)}`);
+		}
+		// A music-only admin who lands on a super-admin screen is sent to their
+		// own home rather than shown a 403: they are legitimately signed in and
+		// most likely followed a stale link or a bookmark.
+		if (!canOpenAdminPath(session, pathname)) {
+			redirect(303, MUSIC_ADMIN_HOME);
 		}
 	}
 
@@ -176,10 +195,12 @@ const ADMIN_ONLY_PREFIXES = ['/api/v1/export'];
 const readGuard: Handle = async ({ event, resolve }) => {
 	const { pathname } = event.url;
 	if (ADMIN_ONLY_PREFIXES.some((p) => pathname.startsWith(p))) {
-		if (!event.locals.session) {
+		// The export dumps every collection at once, so it is super-admin only:
+		// a music admin has no business reading drafts, visits or credentials.
+		if (!isSuper(event.locals.session)) {
 			const expected = env.ADMIN_API_TOKEN;
 			const presented = event.request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
-			if (!expected || !presented || presented !== expected) {
+			if (!expected || !presented || !safeEqual(presented, expected)) {
 				return json(
 					{ message: apiMessage('api.unauthorized', event.locals.locale) },
 					{ status: 401 }
@@ -194,7 +215,16 @@ const writeGuard: Handle = async ({ event, resolve }) => {
 	const { request, url } = event;
 
 	if (url.pathname.startsWith('/api/') && WRITE_METHODS.has(request.method)) {
-		if (event.locals.session) return resolve(event);
+		const session = event.locals.session;
+		if (session) {
+			// Signed in, but not necessarily for THIS collection. A music-only
+			// admin writing anything but songs (or the uploader those songs need)
+			// is refused here — the guard is the boundary, not the UI.
+			if (canWriteApiPath(session, url.pathname)) return resolve(event);
+			// A distinct message from the signed-out one: "sign in to make
+			// changes" is actively misleading to someone who already has.
+			return json({ message: apiMessage('api.notYours', event.locals.locale) }, { status: 403 });
+		}
 
 		const expected = env.ADMIN_API_TOKEN;
 		const presented = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');

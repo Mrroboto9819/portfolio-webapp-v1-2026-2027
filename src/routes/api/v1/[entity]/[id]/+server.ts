@@ -5,6 +5,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getRepo, isEntityName } from '$lib/server/repositories';
 import { publicOne } from '$lib/server/publicView';
+import { applyPublishPolicy } from '$lib/server/permissions';
 
 function repoOr404(name: string) {
 	if (!isEntityName(name)) error(404, `Unknown entity '${name}'`);
@@ -20,7 +21,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	return json(doc);
 };
 
-export const PATCH: RequestHandler = async ({ params, request }) => {
+export const PATCH: RequestHandler = async ({ params, request, locals }) => {
 	const repo = repoOr404(params.entity);
 	let body: unknown;
 	try {
@@ -31,7 +32,12 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 	if (!body || typeof body !== 'object' || Array.isArray(body)) {
 		error(400, 'Body must be an object');
 	}
-	const updated = await repo.update(params.id, body as Record<string, unknown>);
+	// An update from someone who may not publish keeps every field except the
+	// visibility flag — see permissions.ts for why it is dropped, not forced.
+	const patch = applyPublishPolicy(locals.session, body as Record<string, unknown>, {
+		creating: false
+	});
+	const updated = await repo.update(params.id, patch);
 	if (!updated) error(404, 'Not found');
 	return json(updated);
 };

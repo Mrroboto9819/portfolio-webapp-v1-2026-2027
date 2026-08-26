@@ -10,6 +10,8 @@ import {
 	verifyCredentials
 } from '$lib/server/auth';
 import { createSession } from '$lib/server/sessions';
+import { localeOf } from '$lib/server/users';
+import { isLocale } from '$lib/i18n';
 
 // Simple in-process attempt throttle. Not a substitute for a real rate limiter
 // behind a proxy, but it stops a single host grinding passwords against a
@@ -96,6 +98,21 @@ export const actions: Actions = {
 		const refresh = await createSession(session, refreshTtl());
 		cookies.set(SESSION_COOKIE, await createSessionToken(session), sessionCookieOptions());
 		cookies.set(REFRESH_COOKIE, refresh, refreshCookieOptions());
+
+		// Re-seed the language from the account's saved preference. The cookie is
+		// what every request reads, so without this a user signing in from a new
+		// browser gets whatever Accept-Language says rather than the language
+		// they chose. Their own choice on this device still wins afterwards —
+		// this only fires at sign-in.
+		const preferred = await localeOf(session.sub);
+		if (isLocale(preferred)) {
+			cookies.set('lang', preferred, {
+				path: '/',
+				maxAge: 60 * 60 * 24 * 365,
+				sameSite: 'lax',
+				httpOnly: false
+			});
+		}
 
 		redirect(303, safeNext(url.searchParams.get('next')));
 	}

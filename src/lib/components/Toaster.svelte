@@ -129,7 +129,12 @@
 
 <style>
 	/* A popover gets UA defaults (centred, bordered, auto size) that must be
-	   undone — the positioning here is our own. */
+	   undone — the positioning here is our own.
+
+	   The offsets are declared HERE rather than left to the top-16/right-4
+	   utilities on the element. Svelte scopes this rule to `.toast-host.svelte-*`,
+	   which outranks a single Tailwind class, so `inset: auto` alone silently
+	   beat them and dropped every toast in the top-LEFT corner. */
 	.toast-host {
 		margin: 0;
 		border: 0;
@@ -137,6 +142,16 @@
 		background: transparent;
 		overflow: visible;
 		inset: auto;
+		top: 4rem;
+		right: 1rem;
+		bottom: auto;
+		left: auto;
+	}
+	@media (min-width: 768px) {
+		.toast-host {
+			top: 5rem;
+			right: 1.5rem;
+		}
 	}
 	.toast-host::backdrop {
 		background: transparent;
