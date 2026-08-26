@@ -1,7 +1,12 @@
 # Auto-deploy to the k3s cluster.
 #
 #   develop -> portafolio-beta -> https://beta.pablocabrera.dev
-#   main    -> portafolio-web  -> https://pablocabrera.dev
+#
+# main no longer deploys here: production moved to AWS and ships through
+# deploy-aws.yml (GHCR build, EC2 rolled over SSM). The main->portafolio-web
+# mapping in "Resolve target" is kept ONLY as a break-glass — a manual
+# workflow_dispatch from main can still roll k3s prod while the cluster
+# remains the warm rollback target. Delete the mapping when k3s retires.
 #
 # Same job, same runner, same image build; only the target deployment and the
 # Dockerfile stage differ. One workflow rather than two because a production
@@ -21,7 +26,7 @@ name: Deploy to k3s
 
 on:
   push:
-    branches: [develop, main]
+    branches: [develop]
   workflow_dispatch:
 
 concurrency:
