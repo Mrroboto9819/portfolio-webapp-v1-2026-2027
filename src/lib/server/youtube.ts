@@ -1,12 +1,19 @@
 // YouTube search + audio grab for the admin music library.
 //
-// Search is yt-search (plain HTTPS scrape, no API key). The download leg is a
-// yt-dlp SUBPROCESS piped through ffmpeg — deliberately not a JS downloader
-// library: @distube/ytdl-core cannot even be imported under Bun (its cookie
+// EVERY leg is yt-dlp — search, metadata and the download. Deliberately not a
+// JS library: @distube/ytdl-core cannot even be imported under Bun (its cookie
 // agent needs undici Agent.compose, which Bun's built-in undici lacks), and
 // youtubei.js gets 403s from googlevideo without the PoToken machinery. yt-dlp
 // is the one tool that keeps up with YouTube's countermeasures, and a
 // subprocess behaves identically under Bun and Node.
+//
+// Search used to be yt-search, a plain HTML scrape. It was replaced because it
+// is unmaintained (2.13.1 is both what we had and the latest release) and
+// parses every result eagerly: one item in an unexpected shape — a live radio
+// stream, whose title is not a plain string — threw `title.trim is not a
+// function` and took the WHOLE result set with it. Searching through yt-dlp
+// means one tool to keep current instead of two, and the search inherits the
+// cookies below, which a scrape could not use.
 //
 // System requirements, both in the runtime image and on a dev machine:
 //   ffmpeg  — transcode to mp3 (fluent-ffmpeg drives the binary)
@@ -49,7 +56,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { env } from '$env/dynamic/private';
 import ffmpeg from 'fluent-ffmpeg';
-import ytSearch from 'yt-search';
 import { uploadObject, type UploadResult } from './s3';
 
 /**
@@ -67,42 +73,135 @@ export type VideoHit = {
 	url: string;
 	thumbnail: string;
 	channel: string;
-	/** "3:05" — already formatted by yt-search. */
+	/** "3:05", straight from yt-dlp. Empty for a live stream, which has none. */
 	duration: string;
 	seconds: number;
-	ago: string;
 	views: number;
+	/** Live streams and premieres cannot be grabbed — the UI says so instead. */
+	isLive: boolean;
 };
 
+/**
+ * Run yt-dlp to completion and hand back stdout.
+ *
+ * The streaming download in grabAudio() cannot use this — it needs the pipe —
+ * but search and metadata are both "run it, read the JSON", and doing that in
+ * one place means they share the cookie/proxy handling and report failures the
+ * same way the grab does.
+ */
+async function ytdlpJSON(args: string[], timeoutMs = 45_000): Promise<string> {
+	const jar = await cookieJar();
+	const proc = spawn('yt-dlp', [...configArgs(jar?.path ?? null), ...args], {
+		stdio: ['ignore', 'pipe', 'pipe']
+	});
+
+	let out = '';
+	let err = '';
+	proc.stdout.on('data', (d) => (out += d));
+	proc.stderr.on('data', (d) => (err = (err + d).slice(-2000)));
+
+	// A hung extractor must not hold an admin request open forever.
+	const killer = setTimeout(() => proc.kill('SIGKILL'), timeoutMs);
+
+	try {
+		const code = await new Promise<number | null>((resolve, reject) => {
+			proc.on('error', (e) =>
+				reject(new Error(`yt-dlp could not start: ${e.message} — is yt-dlp installed?`))
+			);
+			proc.on('close', resolve);
+		});
+		if (code !== 0) throw new Error(grabFailure(`yt-dlp exited with code ${code}`, err, code));
+		return out;
+	} finally {
+		clearTimeout(killer);
+		await jar?.dispose();
+	}
+}
+
+/**
+ * Search YouTube.
+ *
+ * --flat-playlist is what keeps this fast: it reads the search result page and
+ * stops, rather than resolving every hit's formats (which would mean one full
+ * extraction, JS challenge and all, per row). Every field the list needs is on
+ * that page already.
+ *
+ * One JSON object per line, and a malformed line is SKIPPED rather than thrown
+ * — the precise failure that retired yt-search. A search that can show eleven
+ * of twelve results must show eleven.
+ */
 export async function searchVideos(query: string, limit = 12): Promise<VideoHit[]> {
-	const res = await ytSearch(query);
-	return res.videos.slice(0, limit).map((v) => ({
-		videoId: v.videoId,
-		title: v.title,
-		description: v.description,
-		url: v.url,
-		// yt-search omits the thumbnail on the odd result; the id-derived URL is
-		// the same image and always resolves, so there is no broken-tile state.
-		thumbnail: v.thumbnail || `https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`,
-		channel: v.author?.name ?? '',
-		duration: v.timestamp,
-		seconds: v.seconds,
-		ago: v.ago,
-		views: v.views
-	}));
+	const q = query.trim();
+	if (!q) return [];
+
+	// The query is one argv entry, never a shell string, so a colon or a quote
+	// in it is data. `ytsearchN:` is yt-dlp's own search pseudo-URL.
+	const out = await ytdlpJSON([
+		'--dump-json',
+		'--flat-playlist',
+		'--no-warnings',
+		`ytsearch${Math.max(1, Math.min(limit, 25))}:${q}`
+	]);
+
+	const hits: VideoHit[] = [];
+	for (const line of out.split('\n')) {
+		if (!line.trim()) continue;
+		try {
+			const v = JSON.parse(line);
+			if (!isVideoId(String(v.id ?? ''))) continue;
+			hits.push(toHit(v));
+		} catch {
+			// One unreadable row, not a failed search.
+		}
+	}
+	return hits;
+}
+
+/** Shape one yt-dlp record into what the page renders. */
+function toHit(v: Record<string, unknown>): VideoHit {
+	const id = String(v.id);
+	const seconds = Number(v.duration ?? 0) || 0;
+	const live = v.live_status === 'is_live' || v.live_status === 'is_upcoming';
+	return {
+		videoId: id,
+		title: String(v.title ?? '(untitled)'),
+		description: String(v.description ?? ''),
+		url: String(v.url ?? `https://www.youtube.com/watch?v=${id}`),
+		// The id-derived URL rather than thumbnails[]: it is the same image, it
+		// is always there, and it does not carry yt-dlp's signed query string.
+		thumbnail: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
+		channel: String(v.channel ?? v.uploader ?? ''),
+		duration: String(v.duration_string ?? '') || (live ? 'LIVE' : ''),
+		seconds,
+		views: Number(v.view_count ?? 0) || 0,
+		isLive: live
+	};
 }
 
 /** Authoritative metadata for one video — the grab re-reads it server-side
  *  rather than trusting hidden form inputs. */
 export async function videoMeta(videoId: string) {
-	const v = await ytSearch({ videoId });
+	if (!isVideoId(videoId)) throw new Error('Not a valid YouTube video id');
+
+	// A full extraction, unlike search: this is the check that decides whether a
+	// grab may start, so it has to be the real record for THIS video.
+	const out = await ytdlpJSON([
+		'--dump-json',
+		'--no-playlist',
+		'--no-warnings',
+		`https://www.youtube.com/watch?v=${videoId}`
+	]);
+
+	const v = JSON.parse(out.trim().split('\n')[0] || '{}');
+	const live = v.live_status === 'is_live' || v.live_status === 'is_upcoming';
 	return {
-		videoId: v.videoId,
-		title: v.title,
-		url: v.url,
-		channel: v.author?.name ?? '',
-		seconds: v.seconds,
-		duration: v.timestamp
+		videoId,
+		title: String(v.title ?? ''),
+		url: String(v.webpage_url ?? `https://www.youtube.com/watch?v=${videoId}`),
+		channel: String(v.channel ?? v.uploader ?? ''),
+		seconds: Number(v.duration ?? 0) || 0,
+		duration: String(v.duration_string ?? ''),
+		isLive: live
 	};
 }
 
@@ -189,8 +288,28 @@ async function cookieJar(): Promise<{ path: string; dispose: () => Promise<void>
 }
 
 /** The argument list for one grab: fixed flags first, configured ones after. */
+/**
+ * The environment-driven flags, shared by every yt-dlp call.
+ *
+ * Search, metadata and the download all face the same YouTube, so they all
+ * need the same cookies and the same runtime — a search that is refused as a
+ * bot is no more use than a download that is.
+ */
+function configArgs(cookies: string | null): string[] {
+	const args: string[] = [];
+	if (cookies) args.push('--cookies', cookies);
+	if (env.YTDLP_PROXY) args.push('--proxy', env.YTDLP_PROXY);
+	// --no-js-runtimes FIRST, or the override is merely added alongside deno
+	// and deno still wins — it outranks every other runtime.
+	if (env.YTDLP_JS_RUNTIME) args.push('--no-js-runtimes', '--js-runtimes', env.YTDLP_JS_RUNTIME);
+	if (env.YTDLP_PLAYER_CLIENTS)
+		args.push('--extractor-args', `youtube:player_client=${env.YTDLP_PLAYER_CLIENTS}`);
+	return args;
+}
+
+/** The download leg's own arguments, on top of configArgs(). */
 function ytdlpArgs(videoId: string, cookies: string | null): string[] {
-	const args = [
+	return [
 		'-f',
 		'bestaudio/best',
 		'--no-playlist',
@@ -199,19 +318,10 @@ function ytdlpArgs(videoId: string, cookies: string | null): string[] {
 		// that explains a failure.
 		'--no-progress',
 		'-o',
-		'-'
+		'-',
+		...configArgs(cookies),
+		`https://www.youtube.com/watch?v=${videoId}`
 	];
-
-	if (cookies) args.push('--cookies', cookies);
-	if (env.YTDLP_PROXY) args.push('--proxy', env.YTDLP_PROXY);
-	// --no-js-runtimes FIRST, or the override is merely added alongside deno
-	// and deno still wins — it outranks every other runtime.
-	if (env.YTDLP_JS_RUNTIME) args.push('--no-js-runtimes', '--js-runtimes', env.YTDLP_JS_RUNTIME);
-	if (env.YTDLP_PLAYER_CLIENTS)
-		args.push('--extractor-args', `youtube:player_client=${env.YTDLP_PLAYER_CLIENTS}`);
-
-	args.push(`https://www.youtube.com/watch?v=${videoId}`);
-	return args;
 }
 
 /**

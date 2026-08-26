@@ -217,7 +217,10 @@
 					</div>
 					<div class="mb-2 flex flex-wrap gap-x-3 font-mono text-xs text-tertiary-container">
 						<span>{v.channel}</span>
-						<span class="text-outline">{fmtViews(v.views)} views · {v.ago}</span>
+						<span class="text-outline">{fmtViews(v.views)} views</span>
+						{#if v.isLive}
+							<span class="text-error">{T('admin.liveStream')}</span>
+						{/if}
 					</div>
 					{#if v.description}
 						<p class="m-0 line-clamp-2 font-mono text-xs leading-relaxed text-outline">
@@ -227,7 +230,11 @@
 				</div>
 
 				<div class="flex shrink-0 items-center">
-					{#if done.has(v.videoId)}
+					{#if v.isLive}
+						<span class="px-4 font-mono text-xs tracking-[0.1em] text-outline uppercase">
+							{T('admin.cannotGrabLive')}
+						</span>
+					{:else if done.has(v.videoId)}
 						<span class="px-4 font-mono text-xs tracking-[0.1em] text-primary-container uppercase">
 							{T('admin.inLibrary')}
 						</span>

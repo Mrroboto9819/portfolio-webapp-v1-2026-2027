@@ -42,17 +42,30 @@ export const actions: Actions = {
 
 		if (!isVideoId(videoId)) return fail(400, { message: 'Not a valid YouTube video id' });
 
-		// One library row per video: the credit line carries the source URL, so
+		// One row per video PER OWNER: the credit line carries the source URL, so
 		// it doubles as the dedupe key — no schema field spent on it.
-		const existing = (await songs.list({ activeOnly: false })) as Song[];
-		const dupe = existing.find((s) => s.credit?.includes(videoId));
-		if (dupe) return fail(409, { message: `Already in the library as “${dupe.title}”` });
+		//
+		// Scoped to the grabber's own shelf, and deliberately not to what a
+		// super-admin can see: "already in the library" has to mean YOUR library,
+		// or two admins could never keep the same track, and the refusal would
+		// name a row the person being refused is not allowed to look at.
+		const mine = (await songs.listFor(locals.session?.username ?? '', {
+			activeOnly: false
+		})) as Song[];
+		const dupe = mine.find((s) => s.credit?.includes(videoId));
+		if (dupe) return fail(409, { message: `Already in your library as “${dupe.title}”` });
 
 		let meta;
 		try {
 			meta = await videoMeta(videoId);
 		} catch {
 			return fail(502, { message: 'Could not read the video’s metadata' });
+		}
+		// A live stream or a premiere has no end to transcode toward: the grab
+		// would run until something else stopped it. Checked here and not only in
+		// the UI, because the UI is a hint and this is the rule.
+		if (meta.isLive || meta.seconds <= 0) {
+			return fail(400, { message: 'That is a live stream — there is nothing finished to grab' });
 		}
 		if (meta.seconds > MAX_GRAB_SECONDS) {
 			return fail(400, {
