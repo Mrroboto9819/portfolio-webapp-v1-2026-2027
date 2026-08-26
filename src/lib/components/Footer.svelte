@@ -56,13 +56,22 @@
 				</span>
 				<ul class="m-0 flex list-none flex-wrap items-center gap-2.5 p-0">
 					{#each STACK as tech (tech.label)}
-						<li>
+						<li class="relative">
+							<!-- A real tooltip, not the native title: it appears instantly,
+							     in a fixed spot above the mark, and works for keyboard
+							     focus too. aria-hidden because the sr-only span names it. -->
 							<span
-								title={tech.label}
-								class="inline-flex opacity-70 transition-opacity duration-200 hover:opacity-100"
+								tabindex="0"
+								class="group inline-flex opacity-70 transition-opacity duration-200 hover:opacity-100 focus-visible:opacity-100"
 							>
 								<Icon src={tech.src} size={16} color={brandColor(tech.brand)} />
 								<span class="sr-only">{tech.label}</span>
+								<span
+									aria-hidden="true"
+									class="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 border border-outline/40 bg-surface-lowest px-2 py-1 font-mono text-[10px] tracking-[0.08em] whitespace-nowrap text-on-surface opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+								>
+									{tech.label}
+								</span>
 							</span>
 						</li>
 					{/each}
