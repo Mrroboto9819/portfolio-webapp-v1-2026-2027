@@ -3,6 +3,7 @@ import type { Actions, PageServerLoad } from './$types';
 import { SCHEMAS, coerce, searchFieldsFor } from '$lib/adminSchema';
 import { LOCALES, TRANSLATABLE } from '$lib/i18n';
 import { getRepo, isEntityName } from '$lib/server/repositories';
+import { applyPublishPolicy, canPublish } from '$lib/server/permissions';
 
 function schemaFor(name: string) {
 	if (!isEntityName(name)) error(404, `Unknown entity '${name}'`);
@@ -64,9 +65,12 @@ async function patchFrom(request: Request, entity: string) {
 }
 
 export const actions: Actions = {
-	save: async ({ request, params }) => {
+	save: async ({ request, params, locals }) => {
 		const { entity, repo, schema } = schemaFor(params.entity);
-		const { patch, id } = await patchFrom(request, entity);
+		const { patch: raw, id } = await patchFrom(request, entity);
+		// Visibility on the public site is a super-admin decision, so a music
+		// admin's save carries everything EXCEPT that flag — see permissions.ts.
+		const patch = applyPublishPolicy(locals.session, raw, { creating: !id });
 
 		for (const f of schema.fields) {
 			const v = patch[f.name];
@@ -94,7 +98,7 @@ export const actions: Actions = {
 	 * so it cannot blank out the rest of the record the way submitting a
 	 * partially-populated edit form would.
 	 */
-	toggle: async ({ request, params }) => {
+	toggle: async ({ request, params, locals }) => {
 		const { repo, schema } = schemaFor(params.entity);
 		const form = await request.formData();
 		const id = String(form.get('id') ?? '');
@@ -102,6 +106,11 @@ export const actions: Actions = {
 		const next = String(form.get('next') ?? '') === 'true';
 
 		if (!id) return fail(400, { message: 'Missing id.' });
+		// The table's visibility switch is the shortest path to publishing, so
+		// it carries the same rule as the editor.
+		if (fieldName === 'isActive' && !canPublish(locals.session)) {
+			return fail(403, { message: 'Only a super-admin can change what the public site shows.' });
+		}
 		// Only fields the schema declares as booleans may be toggled, so this
 		// cannot be used to write arbitrary keys.
 		const known =
