@@ -88,6 +88,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Show OIDC claims (temporary debug)
+        # Prints only the token's decoded CLAIMS (sub/aud/ref), never the
+        # signed token itself. Remove once the trust policy matches.
+        run: |
+          PAYLOAD=$(curl -sH "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" \
+            | jq -r .value | cut -d. -f2 | tr '_-' '/+')
+          case $((${#PAYLOAD} % 4)) in 2) PAYLOAD="$PAYLOAD==";; 3) PAYLOAD="$PAYLOAD=";; esac
+          echo "$PAYLOAD" | base64 -d | jq '{sub, aud, repository, ref, event_name, iss}'
+
       - name: Assume the deploy role (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
