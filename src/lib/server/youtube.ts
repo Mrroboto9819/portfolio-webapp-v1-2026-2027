@@ -12,14 +12,37 @@
 //   ffmpeg  — transcode to mp3 (fluent-ffmpeg drives the binary)
 //   yt-dlp  — resolve + stream the audio
 //
+// Two things break grabs in production, and both are configuration rather than
+// code:
+//
+//   1. A STALE yt-dlp. YouTube reshuffles its player every few weeks and an old
+//      extractor gets refused. The image pins an upstream release — see the
+//      YTDLP_VERSION note in the Dockerfile — precisely so this is a one-line
+//      bump instead of a mystery.
+//   2. The SERVER'S IP. YouTube treats datacentre ranges as suspicious, and an
+//      EC2 box sits in one, so it answers "Sign in to confirm you're not a
+//      bot" to requests that succeed from a laptop. Nothing in the code can
+//      argue with that; only a signed-in cookie jar (or an off-datacentre
+//      proxy) can. Hence the env knobs below, all optional:
+//
+//        YTDLP_COOKIES_B64    base64 of a Netscape cookies.txt — base64 because
+//                             the instance passes env through docker
+//                             --env-file, which is strictly one line per value
+//        YTDLP_COOKIES_FILE   path to a jar already on disk, if you would
+//                             rather mount one than carry it in SSM
+//        YTDLP_PROXY          proxy URL, for when the IP is the whole problem
+//        YTDLP_PLAYER_CLIENTS --extractor-args youtube:player_client=… , the
+//                             usual first thing upstream suggests trying
+//
 // The mp3 lands in object storage through the SAME uploadObject() the admin
 // uploader uses — same songs/ folder, same size ceiling, same key shape — and
 // only the returned URL reaches the database, like every other upload.
 
 import { spawn } from 'node:child_process';
-import { readFile, unlink } from 'node:fs/promises';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { env } from '$env/dynamic/private';
 import ffmpeg from 'fluent-ffmpeg';
 import ytSearch from 'yt-search';
 import { uploadObject, type UploadResult } from './s3';
@@ -140,6 +163,130 @@ async function grabThumbnail(videoId: string): Promise<string | null> {
 }
 
 /**
+ * A cookie jar for yt-dlp, if one is configured.
+ *
+ * A mounted path is used as-is. The base64 form is decoded into a private temp
+ * file for the length of one grab and deleted afterwards — cookies are live
+ * credentials for a Google account, so they never sit on disk longer than the
+ * download that needs them, and never with a mode anyone else can read.
+ */
+async function cookieJar(): Promise<{ path: string; dispose: () => Promise<void> } | null> {
+	if (env.YTDLP_COOKIES_FILE) {
+		return { path: env.YTDLP_COOKIES_FILE, dispose: async () => void 0 };
+	}
+
+	const encoded = env.YTDLP_COOKIES_B64?.trim();
+	if (!encoded) return null;
+
+	const path = join(tmpdir(), `ytc-${crypto.randomUUID().slice(0, 8)}.txt`);
+	await writeFile(path, Buffer.from(encoded, 'base64'), { mode: 0o600 });
+	return { path, dispose: () => unlink(path).catch(() => void 0) };
+}
+
+/** The argument list for one grab: fixed flags first, configured ones after. */
+function ytdlpArgs(videoId: string, cookies: string | null): string[] {
+	const args = [
+		'-f',
+		'bestaudio/best',
+		'--no-playlist',
+		// The media goes to stdout, so yt-dlp's progress bar goes to stderr —
+		// where it would flood the tail we keep and evict the one ERROR line
+		// that explains a failure.
+		'--no-progress',
+		'-o',
+		'-'
+	];
+
+	if (cookies) args.push('--cookies', cookies);
+	if (env.YTDLP_PROXY) args.push('--proxy', env.YTDLP_PROXY);
+	if (env.YTDLP_PLAYER_CLIENTS)
+		args.push('--extractor-args', `youtube:player_client=${env.YTDLP_PLAYER_CLIENTS}`);
+
+	args.push(`https://www.youtube.com/watch?v=${videoId}`);
+	return args;
+}
+
+/**
+ * yt-dlp's own ERROR line, stripped of the noise around it.
+ *
+ * stderr also carries WARNINGs — the "you are using an out of date version"
+ * banner, missing-metadata notes — and the last of those is NOT the failure.
+ * Only ERROR: lines are, and the last one is the fatal one.
+ */
+function ytdlpError(stderr: string): string {
+	const line = stderr
+		.split('\n')
+		.map((l) => l.trim())
+		.filter((l) => l.startsWith('ERROR:'))
+		.pop();
+
+	return line
+		? line
+				.replace(/^ERROR:\s*/, '')
+				// "[youtube] dQw4w9WgXcQ: " — true but not worth the width.
+				.replace(/^\[[^\]]+\]\s+[A-Za-z0-9_-]{6,}:\s*/, '')
+				.trim()
+		: '';
+}
+
+/**
+ * What to actually DO about each failure yt-dlp reports.
+ *
+ * The raw message is accurate and useless: "Sign in to confirm you're not a
+ * bot" reads like the app needs a login, when what it means is that this
+ * server's IP is the problem. The admin sees these at 1am with no terminal, so
+ * each one carries the next step rather than a symptom.
+ */
+const HINTS: { match: RegExp; hint: string }[] = [
+	{
+		match: /sign in to confirm|not a bot|confirm your age/i,
+		hint: "YouTube is challenging this server rather than the video. Datacentre IPs get asked to prove they're human and only a signed-in cookie jar answers that — set YTDLP_COOKIES_B64 (infra/README.md)."
+	},
+	{
+		match: /nsig extraction failed|unable to extract|player response|signature extraction/i,
+		hint: 'That is the shape of yt-dlp falling behind YouTube — bump YTDLP_VERSION in the Dockerfile and redeploy.'
+	},
+	{
+		match: /private video|video unavailable|removed by the uploader|has been terminated/i,
+		hint: 'The video itself is gone or private — another upload of the same track should work.'
+	},
+	{
+		match: /members-only|join this channel/i,
+		hint: 'Members-only video — nothing to be done here.'
+	},
+	{
+		match: /not available in your country|blocked it in your country|geo/i,
+		hint: 'Geo-blocked where the server lives, not where you are — try a different upload.'
+	},
+	{
+		match: /HTTP Error 429|too many requests/i,
+		hint: 'Rate-limited. Leave it a few minutes before the next grab.'
+	}
+];
+
+/**
+ * Turn a failed grab into one sentence worth reading.
+ *
+ * ffmpeg is the loudest voice and the least informative one: when yt-dlp dies
+ * it hands ffmpeg an empty pipe, and ffmpeg reports "Error opening input file
+ * pipe:0 · Invalid data found when processing input" — which says nothing
+ * about YouTube. yt-dlp's own ERROR line is the story, so it wins whenever
+ * there is one.
+ */
+function grabFailure(ffmpegMessage: string, stderr: string, code: number | null): string {
+	const reported = ytdlpError(stderr);
+	if (reported) {
+		const hint = HINTS.find((h) => h.match.test(reported))?.hint;
+		return hint ? `${reported} — ${hint}` : reported;
+	}
+
+	// Died without saying why: still blame the right process.
+	if (code) return `yt-dlp exited with code ${code}${stderr.trim() ? `: ${stderr.trim()}` : ''}`;
+
+	return ffmpegMessage;
+}
+
+/**
  * Download a video's audio and store it as an mp3 in the songs/ folder.
  *
  * yt-dlp streams the best audio to stdout; ffmpeg transcodes that stream to a
@@ -152,25 +299,28 @@ export async function grabAudio(videoId: string): Promise<UploadResult & { image
 	if (!isVideoId(videoId)) throw new Error('Not a valid YouTube video id');
 
 	const tmp = join(tmpdir(), `grab-${videoId}-${crypto.randomUUID().slice(0, 8)}.mp3`);
+	const jar = await cookieJar();
 
-	const dl = spawn(
-		'yt-dlp',
-		[
-			'-f',
-			'bestaudio/best',
-			'--no-playlist',
-			'-o',
-			'-',
-			`https://www.youtube.com/watch?v=${videoId}`
-		],
-		{ stdio: ['ignore', 'pipe', 'pipe'] }
-	);
+	const dl = spawn('yt-dlp', ytdlpArgs(videoId, jar?.path ?? null), {
+		stdio: ['ignore', 'pipe', 'pipe']
+	});
 
 	// Keep the tail of yt-dlp's stderr: when the pipe dies mid-stream, ffmpeg's
 	// own error is just "output ended" and this is the part that says why.
 	let dlErr = '';
 	dl.stderr.on('data', (d) => {
-		dlErr = (dlErr + d).slice(-1000);
+		dlErr = (dlErr + d).slice(-2000);
+	});
+
+	// yt-dlp exiting and ffmpeg erroring are a race, and yt-dlp is the one with
+	// the explanation — so its exit is tracked separately and the ffmpeg
+	// handler waits for it before deciding what to report.
+	let dlCode: number | null = null;
+	const dlClosed = new Promise<void>((resolve) => {
+		dl.on('close', (code) => {
+			dlCode = code;
+			resolve();
+		});
 	});
 
 	try {
@@ -184,9 +334,11 @@ export async function grabAudio(videoId: string): Promise<UploadResult & { image
 				.audioBitrate(192)
 				.toFormat('mp3')
 				.on('end', () => resolve())
-				.on('error', (e) =>
-					reject(new Error(`${e.message} · yt-dlp said: ${dlErr || '(nothing)'}`))
-				)
+				.on('error', async (e) => {
+					// Bounded: a hung yt-dlp must not hold the admin's request open.
+					await Promise.race([dlClosed, new Promise((r) => setTimeout(r, 2000))]);
+					reject(new Error(grabFailure(e.message, dlErr, dlCode)));
+				})
 				.save(tmp);
 		});
 
@@ -198,6 +350,7 @@ export async function grabAudio(videoId: string): Promise<UploadResult & { image
 		return { ...audio, image: await grabThumbnail(videoId) };
 	} finally {
 		dl.kill();
+		await jar?.dispose();
 		await unlink(tmp).catch(() => void 0);
 	}
 }

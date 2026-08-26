@@ -65,18 +65,42 @@ RUN bun install --frozen-lockfile --ignore-scripts --production
 FROM oven/bun:${BUN_VERSION}-alpine AS runtime
 WORKDIR /app
 
-# The admin's YouTube module shells out to these two, so they are a RUNTIME
+# The admin's YouTube module shells out to these, so they are a RUNTIME
 # dependency of the image, not a build tool:
 #
-#   ffmpeg  — transcodes the downloaded audio to mp3 (fluent-ffmpeg drives it)
-#   yt-dlp  — resolves and streams the audio
+#   ffmpeg   transcodes the downloaded audio to mp3 (fluent-ffmpeg drives it)
+#   yt-dlp   resolves and streams the audio
+#   python3  yt-dlp ships as a Python zipapp; nothing else in the image wants it
 #
-# yt-dlp comes from Alpine's package repository rather than pip so the image
-# needs no Python toolchain of its own. It is the piece that ages: YouTube
-# changes its player and an old yt-dlp starts failing, which shows up as a
-# "yt-dlp said:" message in the admin. The fix is rebuilding this image, so
-# expect to do that occasionally even when the app has not changed.
-RUN apk add --no-cache ffmpeg yt-dlp
+# yt-dlp deliberately does NOT come from Alpine's repository, and that is the
+# whole point of this block. Alpine freezes a package version per release
+# branch: 3.22 — what oven/bun:1.4.0-alpine is built on — shipped yt-dlp
+# 2025.11.12 and will never move off it. yt-dlp is the one dependency here
+# that MUST track upstream, because YouTube changes its player every few weeks
+# and a stale extractor gets answered with "Sign in to confirm you're not a
+# bot". So `apk add yt-dlp` made rebuilding the image look like a fix while
+# silently reinstalling the same nine-month-old build.
+#
+# The upstream release asset is a self-contained Python zipapp: no pip, no
+# build toolchain, and it runs on musl — unlike `yt-dlp_linux`, which is
+# PyInstaller-built against glibc and will not start here. Pinned by version
+# AND by the checksum from the release's own SHA2-256SUMS, so the build is
+# reproducible and a swapped asset fails the build instead of shipping.
+#
+# TO UPDATE — expect this every month or two, it is the routine fix when
+# grabs start failing:
+#   1. take the version and the `yt-dlp` line from
+#      https://github.com/yt-dlp/yt-dlp/releases/latest  (the plain `yt-dlp`
+#      asset and its SHA2-256SUMS entry, NOT `yt-dlp_linux`)
+#   2. bump both ARGs, rebuild, redeploy.
+ARG YTDLP_VERSION=2026.08.19
+ARG YTDLP_SHA256=1fa6733c37ea6fb51c99ad8fe785e7b7e5f3246c9b980230329d4fb72ed8d4d6
+RUN apk add --no-cache ffmpeg python3 && \
+	wget -qO /usr/local/bin/yt-dlp \
+		"https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp" && \
+	echo "${YTDLP_SHA256}  /usr/local/bin/yt-dlp" | sha256sum -c - && \
+	chmod 0755 /usr/local/bin/yt-dlp && \
+	yt-dlp --version
 
 COPY --from=build     /app/build        ./build
 COPY --from=prod-deps /app/node_modules ./node_modules

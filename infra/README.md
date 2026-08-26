@@ -1,7 +1,7 @@
 # AWS migration — operator guide
 
-Companion to the migration runbook. The runbook explains *why*; this file is
-the *do this, in this order* list. Everything AWS-shaped is created by
+Companion to the migration runbook. The runbook explains _why_; this file is
+the _do this, in this order_ list. Everything AWS-shaped is created by
 `terraform apply` in `infra/terraform/` — the steps below are the parts only a
 human with the right logins can do, plus the gates that prove each step
 worked.
@@ -14,14 +14,14 @@ pablocabrera.dev the whole way.
 The question that shapes everything. Six connections, six different
 credentials — and only one of them is a password you manage by hand.
 
-| From | To | Credential | You manage |
-|---|---|---|---|
-| Your laptop (CLI, Terraform) | AWS | IAM user access key via `aws configure` | created once, step 0 |
-| GitHub Actions | AWS (SSM only) | OIDC federation → role `portafolio-github-deploy`, `main` branch only | nothing stored |
-| GitHub Actions | GHCR | built-in `GITHUB_TOKEN` | nothing |
-| EC2 instance | S3 bucket + SSM parameters | IAM instance role `portafolio-ec2`, auto-rotated | nothing |
-| App | Atlas | `MONGODB_URI` (db user + password) **and** Atlas's IP allowlist containing the Elastic IP | user + allowlist, step 1 |
-| You | instance shell | SSM Session Manager through your IAM user | nothing — no SSH keys, port 22 closed |
+| From                         | To                         | Credential                                                                                | You manage                            |
+| ---------------------------- | -------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------- |
+| Your laptop (CLI, Terraform) | AWS                        | IAM user access key via `aws configure`                                                   | created once, step 0                  |
+| GitHub Actions               | AWS (SSM only)             | OIDC federation → role `portafolio-github-deploy`, `main` branch only                     | nothing stored                        |
+| GitHub Actions               | GHCR                       | built-in `GITHUB_TOKEN`                                                                   | nothing                               |
+| EC2 instance                 | S3 bucket + SSM parameters | IAM instance role `portafolio-ec2`, auto-rotated                                          | nothing                               |
+| App                          | Atlas                      | `MONGODB_URI` (db user + password) **and** Atlas's IP allowlist containing the Elastic IP | user + allowlist, step 1              |
+| You                          | instance shell             | SSM Session Manager through your IAM user                                                 | nothing — no SSH keys, port 22 closed |
 
 The one thing people expect to work and doesn't: **AWS IAM does not reach
 Atlas.** Atlas is MongoDB's cloud, not AWS's. Its two locks are the network
@@ -32,7 +32,7 @@ nothing else. (Atlas does offer AWS-IAM-based auth as an upgrade later;
 ignore it during the migration.)
 
 And S3 never talks to Atlas or vice versa — the app is the hub. Mongo stores
-the media *URLs* (`/cdn/portafolio/...`); S3 stores the *bytes*; Caddy maps
+the media _URLs_ (`/cdn/portafolio/...`); S3 stores the _bytes_; Caddy maps
 one onto the other.
 
 ---
@@ -86,7 +86,7 @@ In the Atlas UI (project already exists):
    dump).
 2. **Database Access** → add user `portafolio-app`, password auth, role
    **readWrite on `portafolio`** only — not an org admin.
-3. **Network Access** → add *your current IP* (so you can restore from the
+3. **Network Access** → add _your current IP_ (so you can restore from the
    laptop). The Elastic IP gets added in step 3.
 4. Copy the connection string (`mongodb+srv://...`). The final URI is:
 
@@ -144,7 +144,7 @@ Then, immediately:
 2. Note the other outputs — steps 5–6 use them.
 
 > **✅ Gate 3** — `aws ssm start-session --target $(terraform output -raw
-> instance_id)` drops you into a shell on the box. `systemctl status caddy`
+instance_id)` drops you into a shell on the box. `systemctl status caddy`
 > is active (its cert errors are expected until DNS exists);
 > `docker --version` works.
 
@@ -255,6 +255,56 @@ Beta and production can share one Mailgun domain; the message names the
 account, not the environment, so give beta its own `MAILGUN_FROM` only if you
 want to tell them apart in an inbox.
 
+### YouTube grabs (optional, and only if YouTube blocks the server)
+
+The admin's YouTube module shells out to `yt-dlp`. Two things break it, and
+they need different fixes — the admin toast now names which one you have.
+
+**"That is the shape of yt-dlp falling behind YouTube"** — yt-dlp is stale.
+Bump `YTDLP_VERSION` and `YTDLP_SHA256` in the `Dockerfile` (both values come
+from the `yt-dlp` asset and the `SHA2-256SUMS` file on
+<https://github.com/yt-dlp/yt-dlp/releases/latest> — the plain `yt-dlp`, NOT
+`yt-dlp_linux`, which is glibc-only and will not run on Alpine), then redeploy.
+Expect this every month or two. It is not automatic on purpose: an unpinned
+download would make two builds of the same commit produce different images.
+
+**"YouTube is challenging this server rather than the video"** — the EIP is the
+problem, not the code. YouTube treats datacentre ranges as suspicious and asks
+them to prove they are human, which is why the same video grabs fine from a
+laptop and fails from EC2. Only a signed-in cookie jar answers that:
+
+```sh
+# 1. In a PRIVATE browser window, sign in to YouTube and export cookies with a
+#    Netscape-format cookies.txt extension. Then CLOSE the window without
+#    signing out — signing out invalidates the session you just exported.
+#    Use a throwaway Google account: these cookies are that account's login,
+#    and YouTube may well ban an account it sees driving a datacentre IP.
+#
+# 2. Base64 it. SSM holds a single line and the instance passes env through
+#    docker --env-file, which has no multi-line form at all.
+aws ssm put-parameter --name /portafolio/YTDLP_COOKIES_B64 --type SecureString \
+  --value "$(base64 -i ~/Downloads/cookies.txt | tr -d '\n')"
+
+# 3. Redeploy so the instance rewrites its env file.
+aws ssm send-command --instance-ids "$(terraform -chdir=infra/terraform output -raw instance_id)" \
+  --document-name AWS-RunShellScript \
+  --parameters 'commands=["/usr/local/bin/portafolio-redeploy latest"]'
+```
+
+The app decodes that into a `0600` temp file for the length of one grab and
+deletes it afterwards; it is never written into the image. Cookies expire —
+when grabs start failing with the same challenge again, re-export and re-put.
+
+Three more optional knobs, same place, all unset by default:
+
+| Parameter              | What it does                                                                                                                           |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `YTDLP_COOKIES_FILE`   | Path to a jar already on disk, if you would rather mount one than keep it in SSM. Takes precedence over the base64 form.               |
+| `YTDLP_PROXY`          | Proxy URL. The real fix when the IP is the whole problem, and the only one that survives cookie expiry.                                |
+| `YTDLP_PLAYER_CLIENTS` | Passed to `--extractor-args youtube:player_client=…`. Upstream's usual first suggestion when one client is blocked and another is not. |
+
+None of these is needed on k3s, which grabs from a home connection.
+
 **GHCR visibility.** The first `main` push after this lands builds and
 publishes the image. GHCR packages default to private. Either make the
 package public (github.com → your profile → Packages →
@@ -289,11 +339,11 @@ live.)
 images; its deploy job unlocks when three repository **variables** exist
 (repo → Settings → Secrets and variables → Actions → **Variables**):
 
-| Variable | Value |
-|---|---|
+| Variable              | Value                                   |
+| --------------------- | --------------------------------------- |
 | `AWS_DEPLOY_ROLE_ARN` | `terraform output -raw deploy_role_arn` |
-| `AWS_INSTANCE_ID` | `terraform output -raw instance_id` |
-| `AWS_REGION` | `us-east-1` |
+| `AWS_INSTANCE_ID`     | `terraform output -raw instance_id`     |
+| `AWS_REGION`          | `us-east-1`                             |
 
 Then push any commit to `main` (or run the workflow manually) and watch:
 build → GHCR → SSM → health gate. During the migration window both workflows

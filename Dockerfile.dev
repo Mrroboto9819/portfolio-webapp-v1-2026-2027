@@ -12,7 +12,19 @@ WORKDIR /app
 # Same runtime tools the production image installs — the admin's YouTube grab
 # shells out to both, and without them the feature only works where they happen
 # to be installed on the host.
-RUN apk add --no-cache ffmpeg yt-dlp
+#
+# yt-dlp comes from upstream for the reason spelled out in the main Dockerfile:
+# Alpine 3.22's package is frozen at 2025.11.12, and a stale extractor fails
+# against YouTube. Keep these two ARGs in step with that file, or dev and
+# production disagree about the one dependency most likely to break.
+ARG YTDLP_VERSION=2026.08.19
+ARG YTDLP_SHA256=1fa6733c37ea6fb51c99ad8fe785e7b7e5f3246c9b980230329d4fb72ed8d4d6
+RUN apk add --no-cache ffmpeg python3 && \
+	wget -qO /usr/local/bin/yt-dlp \
+		"https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp" && \
+	echo "${YTDLP_SHA256}  /usr/local/bin/yt-dlp" | sha256sum -c - && \
+	chmod 0755 /usr/local/bin/yt-dlp && \
+	yt-dlp --version
 
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --ignore-scripts

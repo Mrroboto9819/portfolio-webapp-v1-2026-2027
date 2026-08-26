@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
+	import { navigating } from '$app/state';
 	import { ui, type Locale } from '$lib/i18n';
 	import { readJSON, writeJSON } from '$lib/persist';
 	import { toast } from '$lib/toast.svelte';
@@ -37,11 +38,26 @@
 	// Ids that finished this visit, so their button flips to a done state.
 	let done = $state<Set<string>>(new Set());
 
-	function submitSearch(e: Event) {
-		e.preventDefault();
+	// A search is a navigation, so SvelteKit already knows when one is in
+	// flight — no second flag to keep in sync with it. Any navigation landing
+	// back on this route is a search; arriving from elsewhere renders the
+	// skeleton too, which is honest, because the results are genuinely loading.
+	const searching = $derived(navigating.to?.url.pathname === '/admin/youtube');
+
+	function submitSearch(e?: Event) {
+		e?.preventDefault();
 		const params = new URLSearchParams();
 		if (query.trim()) params.set('q', query.trim());
 		goto(`?${params}`, { keepFocus: true, noScroll: true });
+	}
+
+	// Enter already submits a single-input form, but only implicitly — and the
+	// box sits next to a second, unrelated input, which is exactly the layout
+	// where that behaviour is easy to lose. Binding it explicitly means the key
+	// works regardless of what else lands in this form later.
+	function onSearchKey(e: KeyboardEvent) {
+		if (e.key !== 'Enter' || e.isComposing) return;
+		submitSearch(e);
 	}
 
 	const fmtViews = (n: number) =>
@@ -75,20 +91,45 @@
 		</p>
 	{/if}
 
-	<form onsubmit={submitSearch} class="mb-3 flex flex-wrap gap-2" role="search">
+	<form onsubmit={submitSearch} class="mb-1.5 flex flex-wrap gap-2" role="search">
 		<input
 			bind:value={query}
+			onkeydown={onSearchKey}
+			type="search"
+			enterkeyhint="search"
 			placeholder={T('admin.searchYouTube')}
 			aria-label={T('admin.searchYouTube')}
+			aria-busy={searching}
 			class="{field} max-w-md font-mono text-xs"
 		/>
 		<button
 			type="submit"
-			class="clip-corner bg-primary-container px-5 py-2.5 font-mono text-xs font-bold tracking-[0.1em] text-surface uppercase hover:bg-primary-fixed"
+			disabled={searching}
+			class="clip-corner bg-primary-container px-5 py-2.5 font-mono text-xs font-bold tracking-[0.1em] text-surface uppercase hover:bg-primary-fixed disabled:cursor-wait disabled:opacity-60"
 		>
-			{T('admin.search')}
+			{#if searching}
+				<!-- Same three-bar tell the grab button uses, so "working" looks
+				     the same everywhere on this page. The wording stays put; only
+				     the bars move, which keeps the button from resizing. -->
+				<span class="inline-flex items-center gap-2">
+					<span class="inline-flex h-3 items-end gap-[2px]" aria-hidden="true">
+						{#each [0, 1, 2] as b (b)}
+							<span
+								class="w-[2px] bg-surface"
+								style="height: 100%; animation: yt-eq 700ms {b *
+									130}ms ease-in-out infinite alternate"
+							></span>
+						{/each}
+					</span>
+					{T('admin.search')}
+				</span>
+			{:else}
+				{T('admin.search')}
+			{/if}
 		</button>
 	</form>
+
+	<p class="mt-0 mb-6 font-mono text-[11px] text-outline">{T('admin.searchHelp')}</p>
 
 	<div class="mb-6 flex max-w-md items-center gap-2">
 		<label
@@ -107,7 +148,14 @@
 		/>
 	</div>
 
-	{#if data.searchError}
+	<!-- One status line, and `searching` outranks everything: mid-search, the
+	     old "no results" or the hint are both stale answers to a question the
+	     user has already replaced. -->
+	{#if searching}
+		<p class="font-mono text-xs text-primary-container" role="status" aria-live="polite">
+			{T('admin.searching')}
+		</p>
+	{:else if data.searchError}
 		<p
 			class="border border-error/40 bg-error/10 px-3 py-2 font-mono text-xs text-error"
 			role="alert"
@@ -123,8 +171,30 @@
 		</p>
 	{/if}
 
+	{#if searching}
+		<!-- Placeholder rows in the shape of real results, so the list does not
+		     collapse to nothing and then jump back — the layout stays put and
+		     only the content arrives. Decorative: the status line above is what
+		     a screen reader announces. -->
+		<ul class="m-0 flex list-none flex-col gap-3 p-0" aria-hidden="true">
+			{#each [0, 1, 2, 3] as row (row)}
+				<li class="glass flex flex-col gap-4 border border-white/10 p-4 sm:flex-row">
+					<div class="skeleton h-24 w-40 shrink-0 border border-white/10"></div>
+					<div class="min-w-0 flex-1">
+						<div class="skeleton mb-2 h-4 w-3/5"></div>
+						<div class="skeleton mb-3 h-3 w-2/5"></div>
+						<div class="skeleton h-3 w-4/5"></div>
+					</div>
+					<div class="flex shrink-0 items-center">
+						<div class="skeleton h-10 w-32"></div>
+					</div>
+				</li>
+			{/each}
+		</ul>
+	{/if}
+
 	<ul class="m-0 flex list-none flex-col gap-3 p-0">
-		{#each data.results as v (v.videoId)}
+		{#each searching ? [] : data.results as v (v.videoId)}
 			<li class="glass flex flex-col gap-4 border border-white/10 p-4 sm:flex-row">
 				<a
 					href={v.url}
@@ -209,7 +279,7 @@
 		{/each}
 	</ul>
 
-	{#if data.results.length}
+	{#if data.results.length && !searching}
 		<p class="mt-6 font-mono text-[11px] leading-snug text-outline">
 			{T('admin.grabNote')}
 		</p>
@@ -217,6 +287,32 @@
 </div>
 
 <style>
+	/* A shimmer rather than a spinner: it occupies the space the result will
+	   occupy, which is the whole point of showing it. */
+	.skeleton {
+		background: linear-gradient(
+			90deg,
+			rgb(255 255 255 / 0.04) 25%,
+			rgb(255 255 255 / 0.1) 37%,
+			rgb(255 255 255 / 0.04) 63%
+		);
+		background-size: 400% 100%;
+		animation: yt-shimmer 1.4s ease-in-out infinite;
+	}
+	@keyframes yt-shimmer {
+		from {
+			background-position: 100% 50%;
+		}
+		to {
+			background-position: 0% 50%;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.skeleton {
+			animation: none;
+		}
+	}
+
 	@keyframes yt-eq {
 		from {
 			height: 25%;
