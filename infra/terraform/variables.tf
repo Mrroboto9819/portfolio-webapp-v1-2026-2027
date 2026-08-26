@@ -41,9 +41,9 @@ variable "github_owner_id" {
 }
 
 variable "github_repo_id" {
-  description = "Immutable numeric ID of the GitHub repository, as it appears in the OIDC sub claim."
+  description = "Immutable numeric ID of the GitHub repository, as it appears in the OIDC sub claim. Changes if the repo is ever deleted and recreated — rerun terraform apply with the new ID from `gh api repos/<owner>/<repo> --jq .id`."
   type        = string
-  default     = "1343039853"
+  default     = "1347381100"
 }
 
 variable "app_image" {
