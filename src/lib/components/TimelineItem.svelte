@@ -33,7 +33,10 @@
 			aria-hidden="true"
 		></span>
 
-		<div class="relative grid gap-x-5 gap-y-4 p-5 sm:grid-cols-[auto_1fr] md:p-7">
+		<!-- The identity column is FIXED, not auto: sized by content, a long
+		     company name widened it per-card and every card's content started
+		     at a different x. The name truncates inside it instead. -->
+		<div class="relative grid gap-x-5 gap-y-4 p-5 sm:grid-cols-[7rem_1fr] md:p-7">
 			<!-- identity: logo reads as a plate, not a stray favicon -->
 			<div class="flex items-center gap-4 sm:block">
 				<div
@@ -55,14 +58,16 @@
 					{/if}
 				</div>
 				<span
-					class="mt-3 hidden font-mono text-xs tracking-[0.1em] uppercase sm:block"
+					class="mt-3 hidden max-w-full truncate font-mono text-xs tracking-[0.1em] uppercase sm:block"
 					style="color: {accent}"
+					title={job.name}
 				>
 					{job.name}
 				</span>
 				<span
-					class="font-mono text-sm tracking-[0.1em] uppercase sm:hidden"
+					class="min-w-0 truncate font-mono text-sm tracking-[0.1em] uppercase sm:hidden"
 					style="color: {accent}"
+					title={job.name}
 				>
 					{job.name}
 				</span>
