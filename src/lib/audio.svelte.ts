@@ -45,7 +45,20 @@ type Saved = {
 	position: number;
 	volume: number;
 	muted: boolean;
+	/** How the queue advances. Persisted like volume: it is a setting. */
+	repeat?: RepeatMode;
+	shuffle?: boolean;
 };
+
+/**
+ * What happens when a track ends.
+ *
+ *   'all'  — step to the next track, wrapping at the end. The default, and
+ *            what this player has always done.
+ *   'one'  — replay the same track forever.
+ *   'off'  — stop at the end of the queue instead of wrapping.
+ */
+export type RepeatMode = 'all' | 'one' | 'off';
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
 
@@ -57,6 +70,8 @@ class Player {
 	muted = $state(false);
 	position = $state(0);
 	duration = $state(0);
+	repeat = $state<RepeatMode>('all');
+	shuffle = $state(false);
 
 	/** True once a previous visit's track and position have been restored. */
 	restored = $state(false);
@@ -96,6 +111,13 @@ class Player {
 		if (!saved) return;
 		if (typeof saved.volume === 'number') this.volume = clamp01(saved.volume);
 		this.muted = Boolean(saved.muted);
+		// Repeat and shuffle restore for the same reason volume does: they are
+		// settings about how this site behaves, not part of one listening
+		// session. Neither can start audio, so restoring them is safe.
+		if (saved.repeat === 'all' || saved.repeat === 'one' || saved.repeat === 'off') {
+			this.repeat = saved.repeat;
+		}
+		this.shuffle = Boolean(saved.shuffle);
 		const el = this.#el;
 		if (el) {
 			el.volume = this.volume;
@@ -157,7 +179,9 @@ class Player {
 				this.#pendingSeek = 0;
 			}
 		});
-		el.addEventListener('ended', () => this.next());
+		// End of track. `next()` reads the repeat and shuffle settings, so the
+		// only thing decided here is that a finished track advances at all.
+		el.addEventListener('ended', () => this.next({ automatic: true }));
 		el.addEventListener('play', () => {
 			this.playing = true;
 			this.#save(true);
@@ -250,13 +274,75 @@ class Player {
 		}
 	}
 
-	next() {
+	/**
+	 * Advance.
+	 *
+	 * `automatic` marks the call as "the track ended by itself" rather than
+	 * "someone pressed skip", and the two must behave differently: repeat-one
+	 * replays on its own but must still let a person skip forward, and
+	 * repeat-off stops at the end of the queue without stranding the skip
+	 * button.
+	 */
+	next(opts: { automatic?: boolean } = {}) {
+		if (!this.queue.length) return;
+
+		if (opts.automatic && this.repeat === 'one') {
+			this.seek(0);
+			this.playAt(this.index);
+			return;
+		}
+
+		if (this.shuffle) {
+			this.playAt(this.#randomOther());
+			return;
+		}
+
+		const last = this.index >= this.queue.length - 1;
+		if (opts.automatic && last && this.repeat === 'off') {
+			// End of the set: stop rather than wrap, and leave the transport on
+			// the final track so pressing play starts it again.
+			this.stop();
+			return;
+		}
+
 		this.playAt(this.index + 1);
 	}
+
 	prev() {
 		// Restart the track first, like every other player, before stepping back.
 		if (this.position > 3) this.seek(0);
+		else if (this.shuffle) this.playAt(this.#randomOther());
 		else this.playAt(this.index - 1);
+	}
+
+	/**
+	 * A random index that is NOT the current one.
+	 *
+	 * Picking from the other n-1 positions rather than re-rolling until it
+	 * differs: with a two-track queue a re-roll loop can spin, and repeating the
+	 * track you are already on is the one outcome shuffle must never produce.
+	 * A one-track queue has no other index, so it stays put.
+	 */
+	#randomOther(): number {
+		const n = this.queue.length;
+		if (n <= 1) return this.index;
+		const r = Math.floor(Math.random() * (n - 1));
+		return r >= this.index ? r + 1 : r;
+	}
+
+	setRepeat(mode: RepeatMode) {
+		this.repeat = mode;
+		this.#save(true);
+	}
+
+	/** Cycle the button through all → one → off, which is the usual order. */
+	cycleRepeat() {
+		this.setRepeat(this.repeat === 'all' ? 'one' : this.repeat === 'one' ? 'off' : 'all');
+	}
+
+	toggleShuffle() {
+		this.shuffle = !this.shuffle;
+		this.#save(true);
 	}
 
 	seek(seconds: number) {
@@ -312,7 +398,9 @@ class Player {
 			url: song.url,
 			position: this.position,
 			volume: this.volume,
-			muted: this.muted
+			muted: this.muted,
+			repeat: this.repeat,
+			shuffle: this.shuffle
 		} satisfies Saved);
 	}
 }

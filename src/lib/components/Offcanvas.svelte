@@ -145,12 +145,19 @@
 >
 	<!-- identity header -->
 	<div data-oc-item class="flex shrink-0 items-center gap-3 border-b border-white/10 px-5 py-4">
+		<!-- The avatar doubles as the admin door on touch: press and hold it.
+		     AdminShortcut owns the gesture and the hold time; this only marks
+		     the target. Desktop's Ctrl/Cmd+L has no equivalent on a phone, and
+		     that left the admin unreachable from mobile entirely.
+		     touch-callout/user-select are off so iOS shows its own long-press
+		     menu for the image instead of ours. -->
 		<img
 			src="/yo.webp"
 			alt=""
 			width="40"
 			height="40"
-			class="h-10 w-10 shrink-0 border border-primary-container/40 object-cover"
+			data-admin-door
+			class="admin-door h-10 w-10 shrink-0 border border-primary-container/40 object-cover"
 			style="box-shadow: 0 0 12px rgba(0,220,230,0.25)"
 			loading="lazy"
 			decoding="async"
@@ -251,11 +258,21 @@
 				</span>
 			</div>
 
-			<div class="mb-3 truncate font-mono text-xs text-on-surface">
-				{player.current?.title ?? '—'}
-				{#if player.current?.artist}
-					<span class="text-outline">· {player.current.artist}</span>
+			<div class="mb-3 flex items-center gap-2.5">
+				{#if player.current?.image}
+					<img
+						src={player.current.image}
+						alt=""
+						class="h-10 w-10 shrink-0 border border-white/10 object-cover"
+						loading="lazy"
+					/>
 				{/if}
+				<div class="min-w-0 truncate font-mono text-xs text-on-surface">
+					{player.current?.title ?? '—'}
+					{#if player.current?.artist}
+						<span class="text-outline">· {player.current.artist}</span>
+					{/if}
+				</div>
 			</div>
 
 			<div class="flex items-center gap-2">
@@ -321,6 +338,14 @@
 </div>
 
 <style>
+	/* iOS pops its own "Save Image" sheet on a long press, which would land on
+	   top of the gesture and swallow it. */
+	.admin-door {
+		-webkit-touch-callout: none;
+		-webkit-user-select: none;
+		user-select: none;
+	}
+
 	@keyframes oc-eq {
 		from {
 			height: 25%;
