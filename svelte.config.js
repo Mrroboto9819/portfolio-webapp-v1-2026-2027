@@ -34,7 +34,11 @@ const config = {
 				'style-src-attr': ['unsafe-inline'],
 				'font-src': ['self', 'https://fonts.gstatic.com', 'data:'],
 				// Uploads are served same-origin under /cdn, so 'self' covers them.
-				'img-src': ['self', 'data:', 'blob:'],
+				// The two YouTube hosts are for the ADMIN search results' thumbnails
+				// only — they are hotlinked previews of videos, not site content, and
+				// nothing under them is ever rendered on a public page. Grabbed audio
+				// is copied into our own bucket, so the player never depends on them.
+				'img-src': ['self', 'data:', 'blob:', 'https://i.ytimg.com', 'https://img.youtube.com'],
 				'media-src': ['self'],
 				'connect-src': ['self'],
 				'object-src': ['none'],
