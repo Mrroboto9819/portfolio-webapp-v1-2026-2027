@@ -255,55 +255,98 @@ Beta and production can share one Mailgun domain; the message names the
 account, not the environment, so give beta its own `MAILGUN_FROM` only if you
 want to tell them apart in an inbox.
 
-### YouTube grabs (optional, and only if YouTube blocks the server)
+### YouTube grabs
 
-The admin's YouTube module shells out to `yt-dlp`. Two things break it, and
-they need different fixes — the admin toast now names which one you have.
+The admin's YouTube module shells out to `yt-dlp`. Three different things break
+it, and they need three different fixes — the admin toast names which one you
+have, so read it before doing anything.
 
-**"That is the shape of yt-dlp falling behind YouTube"** — yt-dlp is stale.
-Bump `YTDLP_VERSION` and `YTDLP_SHA256` in the `Dockerfile` (both values come
-from the `yt-dlp` asset and the `SHA2-256SUMS` file on
+**1. "falling behind YouTube"** — yt-dlp is stale. Bump `YTDLP_VERSION` and
+`YTDLP_SHA256` in `Dockerfile` _and_ `Dockerfile.dev` (both values from the
+`yt-dlp` asset and `SHA2-256SUMS` on
 <https://github.com/yt-dlp/yt-dlp/releases/latest> — the plain `yt-dlp`, NOT
-`yt-dlp_linux`, which is glibc-only and will not run on Alpine), then redeploy.
-Expect this every month or two. It is not automatic on purpose: an unpinned
-download would make two builds of the same commit produce different images.
+`yt-dlp_linux`, which is glibc-only and will not run on Alpine), rebuild,
+redeploy. Expect this every month or two. Not automated on purpose: an unpinned
+download makes two builds of the same commit produce different images.
 
-**"YouTube is challenging this server rather than the video"** — the EIP is the
-problem, not the code. YouTube treats datacentre ranges as suspicious and asks
-them to prove they are human, which is why the same video grabs fine from a
-laptop and fails from EC2. Only a signed-in cookie jar answers that:
+**2. "YouTube's JS challenge could not be solved"** / _"The page needs to be
+reloaded."_ — YouTube hands out a JavaScript challenge that must be executed
+before it will name a format, and yt-dlp needs a JS runtime for it. The image
+installs `deno`, which yt-dlp enables by default, so this should not recur. If
+it ever does, `YTDLP_JS_RUNTIME=bun` switches to the Bun already in the image
+with no rebuild (deprecated upstream, but it works).
+
+**3. "challenging this server rather than the video"** — the EIP is the
+problem, not the code. YouTube treats datacentre ranges as suspicious, so the
+same video grabs fine from a laptop and is refused from EC2. Verified on this
+instance: _every_ `player_client` (`default`, `tv_simply`, `web_safari`, `ios`,
+`android_vr`, `mweb`, `tv_embedded`, `web_embedded`) is refused identically, so
+`YTDLP_PLAYER_CLIENTS` will not save you. Only a signed-in cookie jar or an
+off-datacentre proxy will.
+
+#### Exporting a cookie jar
+
+No browser extension needed — yt-dlp reads a browser profile directly. Use a
+**throwaway Google account in its own Chrome profile**: the jar is that
+account's login, and YouTube may ban an account it sees driving a datacentre
+IP. A separate _profile_ (avatar menu → **Add new profile**), not a second
+account inside your existing one — otherwise the export contains your real
+account and YouTube authenticates as that.
 
 ```sh
-# 1. In a PRIVATE browser window, sign in to YouTube and export cookies with a
-#    Netscape-format cookies.txt extension. Then CLOSE the window without
-#    signing out — signing out invalidates the session you just exported.
-#    Use a throwaway Google account: these cookies are that account's login,
-#    and YouTube may well ban an account it sees driving a datacentre IP.
-#
-# 2. Base64 it. SSM holds a single line and the instance passes env through
-#    docker --env-file, which has no multi-line form at all.
-aws ssm put-parameter --name /portafolio/YTDLP_COOKIES_B64 --type SecureString \
-  --value "$(base64 -i ~/Downloads/cookies.txt | tr -d '\n')"
+# 1. Find the profile's DIRECTORY name (not its display name):
+python3 -c "import json,os;d=json.load(open(os.path.expanduser('~/Library/Application Support/Google/Chrome/Local State')));[print(k,'->',v.get('name')) for k,v in d['profile']['info_cache'].items()]"
 
-# 3. Redeploy so the instance rewrites its env file.
+# 2. Export. Approve the macOS Keychain prompt for "Chrome Safe Storage".
+#    Quit Chrome first if it complains the database is locked.
+yt-dlp --cookies-from-browser "chrome:Profile 1" \
+  --cookies ~/Downloads/cookies.txt --simulate \
+  "https://www.youtube.com/watch?v=6ACl8s_tBzE"
+
+# 3. Keep ONLY the .youtube.com cookies. Smaller (a full jar does not fit in
+#    SSM at all), and your Google session never leaves the laptop.
+{ echo "# Netscape HTTP Cookie File"; \
+  grep -v '^#' ~/Downloads/cookies.txt | awk -F'\t' 'NF>1 && $1 ~ /youtube\.com$/'; \
+} > ~/Downloads/yt-cookies.txt
+
+# 4. Base64 to a FILE, then hand AWS the file. Do NOT inline "$(base64 …)" —
+#    the command substitution silently produces nothing in some shells and the
+#    put fails with no output at all.
+base64 -i ~/Downloads/yt-cookies.txt | tr -d '\n' > ~/Downloads/yt-cookies.b64
+
+aws ssm put-parameter --name /portafolio/YTDLP_COOKIES_B64 \
+  --type SecureString --tier Advanced \
+  --value file:///Users/pablo/Downloads/yt-cookies.b64
+
+# 5. Redeploy so the instance rewrites its env file.
 aws ssm send-command --instance-ids "$(terraform -chdir=infra/terraform output -raw instance_id)" \
   --document-name AWS-RunShellScript \
   --parameters 'commands=["/usr/local/bin/portafolio-redeploy latest"]'
+
+# 6. Then delete the local copies — they are live credentials.
+rm ~/Downloads/cookies.txt ~/Downloads/yt-cookies.txt ~/Downloads/yt-cookies.b64
 ```
 
-The app decodes that into a `0600` temp file for the length of one grab and
-deletes it afterwards; it is never written into the image. Cookies expire —
-when grabs start failing with the same challenge again, re-export and re-put.
+`--tier Advanced` is required and is a one-way door per parameter (to undo it,
+delete and recreate). Standard tier caps a value at 4096 characters: a
+YouTube-only jar base64s to ~4980, and a full jar to ~13500 — over even the
+Advanced 8192 limit, which is why step 3 is not optional. Advanced parameters
+cost about $0.05/month. No Terraform or deploy-script change is needed;
+`get-parameters-by-path` reads Advanced parameters identically.
 
-Three more optional knobs, same place, all unset by default:
+The app decodes the jar into a `0600` temp file for the length of one grab and
+deletes it afterwards; it never enters the image. **Cookies expire** — when
+grabs start failing with the challenge again, re-export and re-put. Never sign
+that account out of the browser, which invalidates the session you exported.
 
-| Parameter              | What it does                                                                                                                           |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `YTDLP_COOKIES_FILE`   | Path to a jar already on disk, if you would rather mount one than keep it in SSM. Takes precedence over the base64 form.               |
-| `YTDLP_PROXY`          | Proxy URL. The real fix when the IP is the whole problem, and the only one that survives cookie expiry.                                |
-| `YTDLP_PLAYER_CLIENTS` | Passed to `--extractor-args youtube:player_client=…`. Upstream's usual first suggestion when one client is blocked and another is not. |
+Two more optional knobs, same place:
 
-None of these is needed on k3s, which grabs from a home connection.
+| Parameter            | What it does                                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `YTDLP_COOKIES_FILE` | Path to a jar already on disk, if you would rather mount one than keep it in SSM. Takes precedence over the base64 form. |
+| `YTDLP_PROXY`        | Proxy URL. The durable fix when the IP is the whole problem — no expiry, no Google account at risk.                      |
+
+None of this is needed on k3s, which grabs from a home connection.
 
 **GHCR visibility.** The first `main` push after this lands builds and
 publishes the image. GHCR packages default to private. Either make the

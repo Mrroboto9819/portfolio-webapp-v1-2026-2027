@@ -33,6 +33,11 @@
 //        YTDLP_PROXY          proxy URL, for when the IP is the whole problem
 //        YTDLP_PLAYER_CLIENTS --extractor-args youtube:player_client=… , the
 //                             usual first thing upstream suggests trying
+//        YTDLP_JS_RUNTIME     override the JS runtime that solves YouTube's
+//                             challenge. The image installs deno, which yt-dlp
+//                             enables by default, so this is only an escape
+//                             hatch: set it to `bun` (already in the image, no
+//                             rebuild needed) if deno ever stops working.
 //
 // The mp3 lands in object storage through the SAME uploadObject() the admin
 // uploader uses — same songs/ folder, same size ceiling, same key shape — and
@@ -199,6 +204,9 @@ function ytdlpArgs(videoId: string, cookies: string | null): string[] {
 
 	if (cookies) args.push('--cookies', cookies);
 	if (env.YTDLP_PROXY) args.push('--proxy', env.YTDLP_PROXY);
+	// --no-js-runtimes FIRST, or the override is merely added alongside deno
+	// and deno still wins — it outranks every other runtime.
+	if (env.YTDLP_JS_RUNTIME) args.push('--no-js-runtimes', '--js-runtimes', env.YTDLP_JS_RUNTIME);
 	if (env.YTDLP_PLAYER_CLIENTS)
 		args.push('--extractor-args', `youtube:player_client=${env.YTDLP_PLAYER_CLIENTS}`);
 
@@ -241,6 +249,12 @@ const HINTS: { match: RegExp; hint: string }[] = [
 	{
 		match: /sign in to confirm|not a bot|confirm your age/i,
 		hint: "YouTube is challenging this server rather than the video. Datacentre IPs get asked to prove they're human and only a signed-in cookie jar answers that — set YTDLP_COOKIES_B64 (infra/README.md)."
+	},
+	{
+		// Reads like a browser problem; it is actually yt-dlp failing to execute
+		// YouTube's JS challenge, which needs a JavaScript runtime on the box.
+		match: /page needs to be reloaded|\[jsc|jsc:|js challenge|js runtime/i,
+		hint: "YouTube's JS challenge could not be solved — the container needs a JavaScript runtime (deno) for that. If deno is installed and this persists, try YTDLP_JS_RUNTIME=bun."
 	},
 	{
 		match: /nsig extraction failed|unable to extract|player response|signature extraction/i,

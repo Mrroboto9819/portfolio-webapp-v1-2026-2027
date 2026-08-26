@@ -71,6 +71,21 @@ WORKDIR /app
 #   ffmpeg   transcodes the downloaded audio to mp3 (fluent-ffmpeg drives it)
 #   yt-dlp   resolves and streams the audio
 #   python3  yt-dlp ships as a Python zipapp; nothing else in the image wants it
+#   deno     solves YouTube's JS challenge — see below, it is not optional
+#
+# On deno specifically. YouTube now hands out a JavaScript challenge that must
+# be executed before it will name a format, and yt-dlp shells out to a JS
+# runtime to do it. With none installed the download dies with the wonderfully
+# unhelpful "The page needs to be reloaded." — which is what this image did,
+# because a Bun image has no runtime yt-dlp recognises for the job.
+#
+# It supports deno, node, quickjs and bun, in that priority order, and only
+# deno is ENABLED by default: install anything else and you must also pass
+# --js-runtimes. So deno costs ~34 MB more than nodejs and saves a flag in the
+# spawn path, on the runtime upstream treats as primary. Bun is already in the
+# image and can solve it, but upstream has deprecated bun support
+# (yt-dlp/yt-dlp#16766), so building on it would be building on something with
+# a removal date. Alpine 3.22 ships a real musl deno, verified on the box.
 #
 # yt-dlp deliberately does NOT come from Alpine's repository, and that is the
 # whole point of this block. Alpine freezes a package version per release
@@ -95,12 +110,13 @@ WORKDIR /app
 #   2. bump both ARGs, rebuild, redeploy.
 ARG YTDLP_VERSION=2026.08.19
 ARG YTDLP_SHA256=1fa6733c37ea6fb51c99ad8fe785e7b7e5f3246c9b980230329d4fb72ed8d4d6
-RUN apk add --no-cache ffmpeg python3 && \
+RUN apk add --no-cache ffmpeg python3 deno && \
 	wget -qO /usr/local/bin/yt-dlp \
 		"https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp" && \
 	echo "${YTDLP_SHA256}  /usr/local/bin/yt-dlp" | sha256sum -c - && \
 	chmod 0755 /usr/local/bin/yt-dlp && \
-	yt-dlp --version
+	yt-dlp --version && \
+	deno --version
 
 COPY --from=build     /app/build        ./build
 COPY --from=prod-deps /app/node_modules ./node_modules
