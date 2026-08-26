@@ -17,9 +17,11 @@ WORKDIR /app
 # Alpine 3.22's package is frozen at 2025.11.12, and a stale extractor fails
 # against YouTube. Keep these two ARGs in step with that file, or dev and
 # production disagree about the one dependency most likely to break.
+# deno is here for the same reason as there: without a JS runtime, YouTube's
+# challenge fails as "The page needs to be reloaded.".
 ARG YTDLP_VERSION=2026.08.19
 ARG YTDLP_SHA256=1fa6733c37ea6fb51c99ad8fe785e7b7e5f3246c9b980230329d4fb72ed8d4d6
-RUN apk add --no-cache ffmpeg python3 && \
+RUN apk add --no-cache ffmpeg python3 deno && \
 	wget -qO /usr/local/bin/yt-dlp \
 		"https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp" && \
 	echo "${YTDLP_SHA256}  /usr/local/bin/yt-dlp" | sha256sum -c - && \
