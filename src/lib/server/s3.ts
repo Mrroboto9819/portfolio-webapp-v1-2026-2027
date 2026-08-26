@@ -6,7 +6,12 @@
 // The database stores the returned URL and nothing else; bytes never touch
 // Mongo or the app pod's filesystem, which keeps the pod disposable.
 
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import {
+	S3Client,
+	PutObjectCommand,
+	DeleteObjectCommand,
+	GetObjectCommand
+} from '@aws-sdk/client-s3';
 import { env } from '$env/dynamic/private';
 
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8 MB — images, PDFs
@@ -111,4 +116,20 @@ export async function uploadObject(file: File, folder = 'uploads'): Promise<Uplo
 
 export async function deleteObject(key: string): Promise<void> {
 	await s3().send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: key }));
+}
+
+/**
+ * Fetch an object for the /cdn/portafolio/ media gate. The bucket is private;
+ * this call — signed with the instance role — is the only road the bytes have
+ * out of storage. Range passes through untouched so audio seeking keeps
+ * working: S3 answers 206 with a Content-Range exactly like a web server.
+ */
+export async function getObject(key: string, range?: string) {
+	return s3().send(
+		new GetObjectCommand({
+			Bucket: env.S3_BUCKET,
+			Key: key,
+			...(range ? { Range: range } : {})
+		})
+	);
 }
