@@ -112,6 +112,56 @@ export function applyPublishPolicy<T extends Record<string, unknown>>(
 	return (opts.creating ? { ...rest, isActive: false } : rest) as T;
 }
 
+/**
+ * Whose tracks an account sees in the admin.
+ *
+ * `null` means every owner; a username means only that person's. A super-admin
+ * gets null because publishing is theirs alone — scope them to their own shelf
+ * and a music admin's grab could never reach the public site, since nobody who
+ * can publish would be able to see it.
+ *
+ * A request with NO session also gets null, and that is not a hole: the public
+ * site reaches songs through publicFilter(), which has already cut the list to
+ * published rows. Ownership decides who edits a track, never who may hear one.
+ */
+export function songScope(
+	session: (Access & { username?: string }) | null | undefined
+): string | null {
+	if (!session) return null;
+	if (isSuper(session)) return null;
+	// A session always carries a username; '' matches no document rather than
+	// every document, which is the right way to fail if one ever does not.
+	return session.username ?? '';
+}
+
+/** Narrow a mixed entity list to the songs this session owns. Others pass through. */
+export function scopeSongs<T extends object>(
+	entity: string,
+	items: T[],
+	session: (Access & { username?: string }) | null | undefined
+): T[] {
+	if (entity !== 'songs') return items;
+	const scope = songScope(session);
+	if (scope === null) return items;
+	return items.filter((s) => (s as { owner?: string }).owner === scope);
+}
+
+/**
+ * May this session write THIS song? Ownership, not role.
+ *
+ * Once libraries are private, "cannot see it" has to imply "cannot edit it" —
+ * otherwise the id in a URL is enough to reach another admin's track through
+ * the API, which is the whole scoping rule undone by one guessed string.
+ */
+export function ownsSong(
+	session: (Access & { username?: string }) | null | undefined,
+	song: { owner?: string } | null | undefined
+): boolean {
+	if (!song) return false;
+	const scope = songScope(session);
+	return scope === null || song.owner === scope;
+}
+
 /** Is this /api/... path writable by a music-only admin? */
 export function canWriteApiPath(a: Access, pathname: string): boolean {
 	if (isSuper(a)) return true;

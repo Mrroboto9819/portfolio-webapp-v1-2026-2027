@@ -34,44 +34,80 @@
 	// because this is a working preference rather than something to link
 	// someone to.
 	let byCategory = $state('');
-	let byOwner = $state('');
+	// Folded folders, by owner. A music admin only ever has one folder — their
+	// own — so this is really a super-admin's tool for auditioning one person's
+	// shelf without the others in the queue.
+	let collapsed = $state<string[]>([]);
 
 	$effect(() => {
-		const saved = readJSON<{ category: string; owner: string }>(FILTER_KEY, {
+		const saved = readJSON<{ category: string; collapsed: string[] }>(FILTER_KEY, {
 			category: '',
-			owner: ''
+			collapsed: []
 		});
 		byCategory = saved.category;
-		byOwner = saved.owner;
+		collapsed = saved.collapsed ?? [];
 	});
 
 	function remember() {
-		writeJSON(FILTER_KEY, { category: byCategory, owner: byOwner });
+		writeJSON(FILTER_KEY, { category: byCategory, collapsed });
+	}
+
+	function toggleFolder(owner: string) {
+		collapsed = collapsed.includes(owner)
+			? collapsed.filter((o) => o !== owner)
+			: [...collapsed, owner];
+		remember();
 	}
 
 	const categories = $derived([
 		...new Set(data.songs.map((s) => s.category).filter(Boolean))
 	] as string[]);
-	const owners = $derived([...new Set(data.songs.map((s) => s.owner).filter(Boolean))] as string[]);
 
-	const filtered = $derived(
-		data.songs.filter(
-			(s) => (!byCategory || s.category === byCategory) && (!byOwner || s.owner === byOwner)
-		)
+	const filtered = $derived(data.songs.filter((s) => !byCategory || s.category === byCategory));
+
+	/**
+	 * One folder per owner, yours first.
+	 *
+	 * The server already scoped this list, so a music admin gets exactly one
+	 * folder and a super-admin gets one per person. Grouping here rather than on
+	 * the server keeps the category filter and the folders independent.
+	 */
+	const folders = $derived.by(() => {
+		const byOwner = new Map<string, Song[]>();
+		for (const s of filtered) {
+			const key = s.owner || '';
+			if (!byOwner.has(key)) byOwner.set(key, []);
+			byOwner.get(key)!.push(s);
+		}
+		return [...byOwner.keys()]
+			.sort((a, b) => (a === data.me ? -1 : b === data.me ? 1 : a.localeCompare(b)))
+			.map((owner) => ({ owner, tracks: byOwner.get(owner)! }));
+	});
+
+	// The queue is what is VISIBLE: tracks in open folders, in folder order. Fold
+	// a folder away and its tracks leave the queue too, so next/prev never jumps
+	// to something that is not on screen.
+	const queue = $derived(
+		folders.filter((f) => !collapsed.includes(f.owner)).flatMap((f) => f.tracks)
 	);
+	// id -> position, so a row inside a folder knows its index in the flat queue
+	// without every folder having to count the ones before it.
+	const queueIndex = $derived(new Map(queue.map((s, i) => [s.id, i])));
 
-	// The FILTERED list is the queue: next/prev and end-of-track advance stay
-	// inside whatever shelf is being auditioned. This is the same shared player
-	// the public site drives, so selecting a track here stops whatever was
-	// playing — one <audio> element, never two fighting.
+	const folderLabel = (owner: string) =>
+		owner === data.me ? T('admin.myLibrary') : owner || T('admin.unowned');
+
+	// This is the same shared player the public site drives, so selecting a track
+	// here stops whatever was playing — one <audio> element, never two fighting.
 	$effect(() => {
-		player.load(filtered);
+		player.load(queue);
 	});
 
 	const isCurrent = (s: Song) => player.current?.url === s.url;
 
 	function play(i: number) {
-		const s = filtered[i];
+		const s = queue[i];
+		if (!s) return;
 		if (isCurrent(s)) player.toggle();
 		else player.playAt(i);
 	}
@@ -118,7 +154,7 @@
 		<p class="font-mono text-xs text-outline">{T('admin.noTracks')}</p>
 	{:else}
 		<!-- filters -->
-		{#if categories.length || owners.length}
+		{#if categories.length}
 			<div class="mb-6 flex flex-col gap-3">
 				{#if categories.length}
 					<div class="flex flex-wrap items-center gap-2">
@@ -145,35 +181,6 @@
 								}}
 							>
 								{c}
-							</button>
-						{/each}
-					</div>
-				{/if}
-				{#if owners.length}
-					<div class="flex flex-wrap items-center gap-2">
-						<span class="mr-1 font-mono text-xs tracking-[0.1em] text-outline uppercase">
-							{T('admin.owner')}
-						</span>
-						<button
-							type="button"
-							class={chip(byOwner === '')}
-							onclick={() => {
-								byOwner = '';
-								remember();
-							}}
-						>
-							{T('admin.all')}
-						</button>
-						{#each owners as o (o)}
-							<button
-								type="button"
-								class={chip(byOwner === o)}
-								onclick={() => {
-									byOwner = o;
-									remember();
-								}}
-							>
-								{o}
 							</button>
 						{/each}
 					</div>
@@ -280,147 +287,177 @@
 			{/if}
 		</div>
 
-		<!-- tracks -->
-		<ul class="m-0 flex list-none flex-col p-0">
-			{#each filtered as s, i (s.id)}
-				<!-- The row is a container, not one big button: the visibility
+		<!-- tracks, one folder per owner -->
+		{#each folders as f (f.owner)}
+			{@const open = !collapsed.includes(f.owner)}
+			<section class="mb-4">
+				<!-- The header is the fold control. A music admin sees exactly one of
+				     these; a super-admin sees one per person, which is the point. -->
+				<button
+					type="button"
+					onclick={() => toggleFolder(f.owner)}
+					aria-expanded={open}
+					class="flex w-full items-center gap-2 border-b border-white/10 px-1 py-2 text-left transition-colors hover:text-primary-container {f.owner ===
+					data.me
+						? 'text-primary-container'
+						: 'text-on-surface-variant'}"
+				>
+					<span class="font-mono text-xs" aria-hidden="true">{open ? '▾' : '▸'}</span>
+					<span class="font-mono text-xs tracking-[0.1em] uppercase">{folderLabel(f.owner)}</span>
+					<span class="font-mono text-xs text-outline">({f.tracks.length})</span>
+				</button>
+
+				{#if open}
+					<ul class="m-0 flex list-none flex-col p-0">
+						{#each f.tracks as s (s.id)}
+							{@const i = queueIndex.get(s.id) ?? -1}
+							<!-- The row is a container, not one big button: the visibility
 				     control is interactive too, and a <button> cannot contain
 				     another. Clicking the title area still plays the track. -->
-				<li class="flex items-center gap-3 border-b border-white/5 pr-2">
-					<button
-						type="button"
-						onclick={() => play(i)}
-						class="flex min-w-0 flex-1 items-center gap-3 px-2 py-2.5 text-left transition-colors hover:bg-primary-container/5 {isCurrent(
-							s
-						)
-							? 'text-primary-container'
-							: 'text-on-surface-variant'}"
-					>
-						<span class="w-7 shrink-0 text-right font-mono text-xs text-outline">
-							{String(i + 1).padStart(2, '0')}
-						</span>
+							<li class="flex items-center gap-3 border-b border-white/5 pr-2">
+								<button
+									type="button"
+									onclick={() => play(i)}
+									class="flex min-w-0 flex-1 items-center gap-3 px-2 py-2.5 text-left transition-colors hover:bg-primary-container/5 {isCurrent(
+										s
+									)
+										? 'text-primary-container'
+										: 'text-on-surface-variant'}"
+								>
+									<span class="w-7 shrink-0 text-right font-mono text-xs text-outline">
+										{String(i + 1).padStart(2, '0')}
+									</span>
 
-						<span class="w-5 shrink-0" aria-hidden="true">
-							{#if isCurrent(s) && player.playing}
-								<span class="inline-flex h-3 items-end gap-[2px]">
-									{#each [0, 1, 2] as b (b)}
-										<span
-											class="w-[2px] bg-primary-container"
-											style="height: 100%; animation: pl-eq 800ms {b *
-												140}ms ease-in-out infinite alternate"
-										></span>
-									{/each}
-								</span>
-							{:else}
-								<!-- Always play here: the equaliser above is the only "playing"
+									<span class="w-5 shrink-0" aria-hidden="true">
+										{#if isCurrent(s) && player.playing}
+											<span class="inline-flex h-3 items-end gap-[2px]">
+												{#each [0, 1, 2] as b (b)}
+													<span
+														class="w-[2px] bg-primary-container"
+														style="height: 100%; animation: pl-eq 800ms {b *
+															140}ms ease-in-out infinite alternate"
+													></span>
+												{/each}
+											</span>
+										{:else}
+											<!-- Always play here: the equaliser above is the only "playing"
 							     state, so a selected-but-paused row must show the action its
 							     click actually performs. -->
-								<PixelIcon icon="media-play" size={14} />
-							{/if}
-						</span>
+											<PixelIcon icon="media-play" size={14} />
+										{/if}
+									</span>
 
-						{#if s.image}
-							<img
-								src={s.image}
-								alt=""
-								class="h-9 w-9 shrink-0 border border-white/10 object-cover"
-								loading="lazy"
-							/>
-						{/if}
+									{#if s.image}
+										<img
+											src={s.image}
+											alt=""
+											class="h-9 w-9 shrink-0 border border-white/10 object-cover"
+											loading="lazy"
+										/>
+									{/if}
 
-						<span class="min-w-0 flex-1">
-							<span class="block truncate font-mono text-sm">{s.title}</span>
-							<span class="block truncate font-mono text-xs text-outline">{s.artist ?? ''}</span>
-						</span>
+									<span class="min-w-0 flex-1">
+										<span class="block truncate font-mono text-sm">{s.title}</span>
+										<span class="block truncate font-mono text-xs text-outline"
+											>{s.artist ?? ''}</span
+										>
+									</span>
 
-						{#if s.category}
-							<span
-								class="hidden shrink-0 border border-outline/30 px-2 py-0.5 font-mono text-[10px] tracking-[0.08em] text-outline uppercase sm:inline"
-							>
-								{s.category}
-							</span>
-						{/if}
-						{#if s.owner}
-							<span class="hidden shrink-0 font-mono text-xs text-tertiary-container md:inline">
-								{s.owner}
-							</span>
-						{/if}
-					</button>
+									{#if s.category}
+										<span
+											class="hidden shrink-0 border border-outline/30 px-2 py-0.5 font-mono text-[10px] tracking-[0.08em] text-outline uppercase sm:inline"
+										>
+											{s.category}
+										</span>
+									{/if}
+									{#if s.owner}
+										<span
+											class="hidden shrink-0 font-mono text-xs text-tertiary-container md:inline"
+										>
+											{s.owner}
+										</span>
+									{/if}
+								</button>
 
-					<!-- Straight to the device. A plain link with `download`, not a
+								<!-- Straight to the device. A plain link with `download`, not a
 					     fetch-and-blob: the file already sits behind the media gate,
 					     and the browser streams it to disk without holding 3 MB in
 					     memory first. -->
-					<a
-						href={s.url}
-						download={fileNameFor(s)}
-						title={T('admin.downloadTitle')}
-						aria-label="{T('admin.download')} — {s.title}"
-						class="shrink-0 border border-outline/40 p-1.5 text-outline transition-colors hover:border-primary-container hover:text-primary-container"
-					>
-						<svg
-							width="14"
-							height="14"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="square"
-							aria-hidden="true"
-						>
-							<path d="M12 3v12M7 11l5 5 5-5M4 20h16" />
-						</svg>
-					</a>
+								<a
+									href={s.url}
+									download={fileNameFor(s)}
+									title={T('admin.downloadTitle')}
+									aria-label="{T('admin.download')} — {s.title}"
+									class="shrink-0 border border-outline/40 p-1.5 text-outline transition-colors hover:border-primary-container hover:text-primary-container"
+								>
+									<svg
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="square"
+										aria-hidden="true"
+									>
+										<path d="M12 3v12M7 11l5 5 5-5M4 20h16" />
+									</svg>
+								</a>
 
-					<!-- Publishing: the switch for a super-admin, the state alone for
+								<!-- Publishing: the switch for a super-admin, the state alone for
 					     everyone else. The action re-checks the privilege — this is
 					     presentation, not the control. -->
-					{#if data.mayPublish}
-						<form
-							method="POST"
-							action="?/visibility"
-							use:enhance={() => {
-								return async ({ result }) => {
-									if (result.type === 'success') {
-										toast.success(
-											s.isActive ? `“${s.title}” hidden` : `“${s.title}” is live on the site`
-										);
-										await invalidateAll();
-									} else if (result.type === 'failure') {
-										toast.error(String(result.data?.message ?? 'Could not change visibility'));
-									}
-								};
-							}}
-							class="flex shrink-0 items-center gap-2"
-						>
-							<input type="hidden" name="id" value={s.id} />
-							<input type="hidden" name="next" value={String(!s.isActive)} />
-							<span
-								class="hidden w-14 text-right font-mono text-[10px] tracking-[0.08em] uppercase sm:inline {s.isActive
-									? 'text-primary-container'
-									: 'text-outline'}"
-							>
-								{s.isActive ? T('admin.onSite') : T('admin.hidden')}
-							</span>
-							<!-- Submit-on-click, which is exactly what Switch is built for. -->
-							<Switch
-								checked={Boolean(s.isActive)}
-								label="{s.isActive ? 'Hide' : 'Show'} “{s.title}” on the public site"
-							/>
-						</form>
-					{:else}
-						<span
-							class="shrink-0 font-mono text-[10px] tracking-[0.08em] uppercase {s.isActive
-								? 'text-primary-container'
-								: 'text-outline'}"
-							title="Only a super-admin can change this"
-						>
-							{s.isActive ? T('admin.onSite') : T('admin.hidden')}
-						</span>
-					{/if}
-				</li>
-			{/each}
-		</ul>
+								{#if data.mayPublish}
+									<form
+										method="POST"
+										action="?/visibility"
+										use:enhance={() => {
+											return async ({ result }) => {
+												if (result.type === 'success') {
+													toast.success(
+														s.isActive ? `“${s.title}” hidden` : `“${s.title}” is live on the site`
+													);
+													await invalidateAll();
+												} else if (result.type === 'failure') {
+													toast.error(
+														String(result.data?.message ?? 'Could not change visibility')
+													);
+												}
+											};
+										}}
+										class="flex shrink-0 items-center gap-2"
+									>
+										<input type="hidden" name="id" value={s.id} />
+										<input type="hidden" name="next" value={String(!s.isActive)} />
+										<span
+											class="hidden w-14 text-right font-mono text-[10px] tracking-[0.08em] uppercase sm:inline {s.isActive
+												? 'text-primary-container'
+												: 'text-outline'}"
+										>
+											{s.isActive ? T('admin.onSite') : T('admin.hidden')}
+										</span>
+										<!-- Submit-on-click, which is exactly what Switch is built for. -->
+										<Switch
+											checked={Boolean(s.isActive)}
+											label="{s.isActive ? 'Hide' : 'Show'} “{s.title}” on the public site"
+										/>
+									</form>
+								{:else}
+									<span
+										class="shrink-0 font-mono text-[10px] tracking-[0.08em] uppercase {s.isActive
+											? 'text-primary-container'
+											: 'text-outline'}"
+										title="Only a super-admin can change this"
+									>
+										{s.isActive ? T('admin.onSite') : T('admin.hidden')}
+									</span>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</section>
+		{/each}
 
 		{#if !filtered.length}
 			<p class="mt-4 font-mono text-xs text-outline">{T('admin.noMatches')}</p>

@@ -5,7 +5,7 @@
 // `SkillRepo` / `ProjectRepo` etc. can extend later (e.g. `byGroup(g)`,
 // `featured()`) without touching the base.
 
-import type { Document, WithId } from 'mongodb';
+import type { Document, Filter, WithId } from 'mongodb';
 import { Repository, type Paged } from './repository';
 import type {
 	BaseDoc,
@@ -45,7 +45,29 @@ class ExtraRepo extends Repository<Extra> {}
 class StatRepo extends Repository<Stat> {}
 class SectionRepo extends Repository<Section> {}
 class IssuerRepo extends Repository<Issuer> {}
-class SongRepo extends Repository<Song> {}
+/**
+ * Songs, with one query the other collections do not need: the library as ONE
+ * account sees it.
+ *
+ * Each admin's grabs are their own shelf, so almost every read of this
+ * collection is scoped to an owner. Doing it in Mongo rather than filtering the
+ * full list in the caller keeps the rule from being half-applied — a route that
+ * forgets to filter returns nothing rather than everyone's tracks.
+ *
+ * `owner: null` means every owner, which is what a super-admin gets; see
+ * songScope() in permissions.ts for who is handed which.
+ */
+class SongRepo extends Repository<Song> {
+	async listFor(owner: string | null, opts: { activeOnly?: boolean } = {}): Promise<Song[]> {
+		const col = await this.col();
+		const filter: Filter<Document> = {
+			...(opts.activeOnly ? { isActive: { $ne: false } } : {}),
+			...(owner === null ? {} : { owner })
+		};
+		const docs = await col.find(filter, { sort: { order: 1, _id: 1 } }).toArray();
+		return docs.map((d) => this.shape(d));
+	}
+}
 
 /**
  * The profile singleton.

@@ -1,5 +1,6 @@
 import type { LayoutServerLoad } from './$types';
 import { profile, songs } from '$lib/server/repositories';
+import { songScope } from '$lib/server/permissions';
 
 // hooks.server.ts already redirects unauthenticated requests away from /admin,
 // so a session is guaranteed here for every page except the login route.
@@ -15,6 +16,7 @@ export const load: LayoutServerLoad = async ({ locals }) => ({
 	// The queue behind the bottom transport, so a track keeps playing (and keeps
 	// showing) while its owner moves around the admin. Hidden rows included:
 	// this is the library, and auditioning something before publishing it is the
-	// whole point of the workflow.
-	songs: await songs.list({ activeOnly: false })
+	// whole point of the workflow. Owner-scoped like the playlist screen —
+	// otherwise the transport is a second, unscoped view of the same library.
+	songs: await songs.listFor(songScope(locals.session), { activeOnly: false })
 });
