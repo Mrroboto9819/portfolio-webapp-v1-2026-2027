@@ -9,7 +9,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { getRepo, isEntityName } from '$lib/server/repositories';
 import { mayListInactive, publicFilter } from '$lib/server/publicView';
-import { applyPublishPolicy } from '$lib/server/permissions';
+import { applyPublishPolicy, scopeSongs } from '$lib/server/permissions';
 
 function repoOr404(name: string) {
 	if (!isEntityName(name)) error(404, `Unknown entity '${name}'`);
@@ -22,7 +22,10 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 	// deactivated. Anonymous callers get the active set whatever they ask for.
 	const all = url.searchParams.get('all') === 'true' && mayListInactive(locals.session);
 	const items = await repo.list({ activeOnly: !all });
-	return json({ items: publicFilter(params.entity, items, locals.session) });
+	// Songs are owned. Without this the API is a way around the playlist's
+	// scoping — the same rows the screen withholds, one fetch away.
+	const owned = scopeSongs(params.entity, items, locals.session);
+	return json({ items: publicFilter(params.entity, owned, locals.session) });
 };
 
 export const POST: RequestHandler = async ({ params, request, locals }) => {
