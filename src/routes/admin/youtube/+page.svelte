@@ -65,6 +65,9 @@
 
 	const field =
 		'w-full border border-outline/40 bg-surface-lowest/60 px-3 py-2.5 text-sm text-on-surface outline-none focus:border-primary-container';
+
+	const dlBtn =
+		'border border-outline/40 px-3 py-1.5 text-center font-mono text-[11px] tracking-[0.08em] uppercase text-outline transition-colors hover:border-tertiary-container hover:text-tertiary-container';
 </script>
 
 <svelte:head>
@@ -229,7 +232,25 @@
 					{/if}
 				</div>
 
-				<div class="flex shrink-0 items-center">
+				<div class="flex shrink-0 flex-col items-stretch justify-center gap-2">
+					<!-- Straight to the device, stored nowhere. Plain links rather than
+					     fetch(): the browser saves the stream as it arrives, which a
+					     blob would instead hold whole in memory — and an MP4 is big. -->
+					{#if !v.isLive}
+						<div class="flex items-center gap-1.5">
+							<a
+								href="/admin/youtube/download/{v.videoId}?format=mp3"
+								title={T('admin.saveMp3Title')}
+								class="{dlBtn} flex-1">↓ {T('admin.saveMp3')}</a
+							>
+							<a
+								href="/admin/youtube/download/{v.videoId}?format=mp4"
+								title={T('admin.saveMp4Title')}
+								class="{dlBtn} flex-1">↓ {T('admin.saveMp4')}</a
+							>
+						</div>
+					{/if}
+
 					{#if v.isLive}
 						<span class="px-4 font-mono text-xs tracking-[0.1em] text-outline uppercase">
 							{T('admin.cannotGrabLive')}
@@ -289,6 +310,9 @@
 	{#if data.results.length && !searching}
 		<p class="mt-6 font-mono text-[11px] leading-snug text-outline">
 			{T('admin.grabNote')}
+		</p>
+		<p class="mt-2 font-mono text-[11px] leading-snug text-outline">
+			{T('admin.downloadNote')}
 		</p>
 	{/if}
 </div>

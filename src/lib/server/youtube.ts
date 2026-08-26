@@ -51,7 +51,9 @@
 // only the returned URL reaches the database, like every other upload.
 
 import { spawn } from 'node:child_process';
+import { createReadStream } from 'node:fs';
 import { readFile, unlink, writeFile } from 'node:fs/promises';
+import { PassThrough, type Readable } from 'node:stream';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { env } from '$env/dynamic/private';
@@ -476,5 +478,186 @@ export async function grabAudio(videoId: string): Promise<UploadResult & { image
 		dl.kill();
 		await jar?.dispose();
 		await unlink(tmp).catch(() => void 0);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Direct downloads — to the person's device, never to the bucket.
+//
+// Separate from grabAudio() on purpose. A grab is a library act: transcoded to
+// a known bitrate, size-capped so uploadObject() will take it, and filed in
+// Mongo. A download is not stored anywhere, so it is free to be as large and
+// as high-quality as YouTube offers — the ceilings below exist to protect the
+// instance, not the bucket.
+
+export type DownloadKind = 'mp3' | 'mp4';
+
+/**
+ * Runaway guard, not a quality one. Nothing is stored, so length only matters
+ * because the box has two cores and one request holds a process the whole time.
+ */
+export const MAX_DOWNLOAD_SECONDS = 60 * 60;
+
+/**
+ * How many downloads may run at once, process-wide.
+ *
+ * The instance is a t3.micro: two vCPUs and under a gigabyte of RAM. Merging is
+ * a stream copy rather than a re-encode so it is cheap in CPU, but each job
+ * still holds a yt-dlp, an ffmpeg and (for mp4) a temp file. Three of these at
+ * once would make the whole admin unresponsive, so the fourth waits its turn
+ * instead of everyone getting a slow one.
+ */
+const MAX_CONCURRENT = 2;
+let active = 0;
+
+/** A filename a person will recognise in their downloads folder. */
+function downloadName(meta: { title: string; channel: string }, kind: DownloadKind): string {
+	const { title, artist } = splitTitle(meta.title, meta.channel);
+	const base = [artist, title].filter(Boolean).join(' - ') || 'video';
+	// Reserved on Windows and awkward everywhere; the rest of Unicode is fine.
+	return `${base.replace(/[\\/:*?"<>|]/g, '').slice(0, 120)}.${kind}`;
+}
+
+/**
+ * Fetch one video as mp3 or mp4 and hand back a stream of it.
+ *
+ * The two formats cannot be produced the same way, and the difference is not
+ * arbitrary:
+ *
+ *   mp3  streams. Nothing in an mp3 needs to be written after the audio, so
+ *        ffmpeg can transcode straight into the response and the browser
+ *        starts saving immediately.
+ *   mp4  cannot. Merging video and audio produces a moov atom that has to be
+ *        written into a SEEKABLE output, so it goes to a temp file first and
+ *        is streamed once complete. The file is removed when the stream ends,
+ *        however it ends.
+ *
+ * Video is capped at 1080p: "best" on YouTube can mean a multi-gigabyte 4K
+ * file, which on this instance is minutes of work and a real chance of filling
+ * the disk. 1080p covers essentially every music video and stays sane.
+ */
+export async function downloadVideo(
+	videoId: string,
+	kind: DownloadKind
+): Promise<{ stream: Readable; filename: string; contentType: string }> {
+	if (!isVideoId(videoId)) throw new Error('Not a valid YouTube video id');
+	if (active >= MAX_CONCURRENT) {
+		throw new Error('Two downloads are already running — try again when one finishes');
+	}
+
+	// Re-read the video server-side rather than trusting the page: this is both
+	// the name on the file and the check that it is downloadable at all.
+	const meta = await videoMeta(videoId);
+	if (meta.isLive || meta.seconds <= 0) {
+		throw new Error('That is a live stream — there is nothing finished to download');
+	}
+	if (meta.seconds > MAX_DOWNLOAD_SECONDS) {
+		throw new Error(
+			`Too long (${meta.duration}) — the limit is ${MAX_DOWNLOAD_SECONDS / 60} minutes`
+		);
+	}
+
+	const filename = downloadName(meta, kind);
+	const url = `https://www.youtube.com/watch?v=${videoId}`;
+	const jar = await cookieJar();
+	active += 1;
+
+	// Every exit path from here MUST reach release() exactly once, or the slot
+	// leaks and the second leak closes the feature for everyone until a restart.
+	let released = false;
+	const release = () => {
+		if (released) return;
+		released = true;
+		active -= 1;
+		void jar?.dispose();
+	};
+
+	try {
+		if (kind === 'mp3') {
+			const dl = spawn(
+				'yt-dlp',
+				[
+					'-f',
+					'bestaudio/best',
+					'--no-playlist',
+					'--no-progress',
+					...configArgs(jar?.path ?? null),
+					'-o',
+					'-',
+					url
+				],
+				{ stdio: ['ignore', 'pipe', 'pipe'] }
+			);
+			let dlErr = '';
+			dl.stderr.on('data', (d) => (dlErr = (dlErr + d).slice(-2000)));
+
+			const out = new PassThrough();
+			// 320k: this copy is for keeping, unlike a library grab, which is held
+			// to 192k so it stays under the upload ceiling.
+			ffmpeg(dl.stdout)
+				.audioCodec('libmp3lame')
+				.audioBitrate(320)
+				.format('mp3')
+				.on('error', (e) => {
+					out.destroy(new Error(grabFailure(e.message, dlErr, null)));
+					dl.kill();
+					release();
+				})
+				.on('end', release)
+				.pipe(out);
+
+			out.on('close', () => {
+				dl.kill();
+				release();
+			});
+			return { stream: out, filename, contentType: 'audio/mpeg' };
+		}
+
+		// mp4 — merged to a temp file, then streamed.
+		const tmp = join(tmpdir(), `dl-${videoId}-${crypto.randomUUID().slice(0, 8)}.mp4`);
+		// H.264 + AAC FIRST, and that ordering is the difference between a remux
+		// and a re-encode. YouTube's best 1080p stream is usually VP9 or AV1 with
+		// Opus audio; forcing those into an mp4 container makes ffmpeg transcode,
+		// which on two shared vCPUs takes minutes and pegs the instance. avc1 +
+		// mp4a are already what mp4 holds, so merging them is a stream copy —
+		// seconds, no quality loss, and a file that plays everywhere. The
+		// fallbacks only matter for videos offering nothing else.
+		const args = [
+			'-f',
+			'bv*[height<=1080][vcodec^=avc1]+ba[acodec^=mp4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b[height<=1080]',
+			'--merge-output-format',
+			'mp4',
+			'--no-playlist',
+			'--no-progress',
+			...configArgs(jar?.path ?? null),
+			'-o',
+			tmp,
+			url
+		];
+
+		const proc = spawn('yt-dlp', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+		let err = '';
+		proc.stderr.on('data', (d) => (err = (err + d).slice(-2000)));
+
+		const code = await new Promise<number | null>((resolve, reject) => {
+			proc.on('error', (e) => reject(new Error(`yt-dlp could not start: ${e.message}`)));
+			proc.on('close', resolve);
+		});
+		if (code !== 0) {
+			await unlink(tmp).catch(() => void 0);
+			throw new Error(grabFailure(`yt-dlp exited with code ${code}`, err, code));
+		}
+
+		const stream = createReadStream(tmp);
+		const cleanup = () => {
+			release();
+			void unlink(tmp).catch(() => void 0);
+		};
+		stream.on('close', cleanup);
+		stream.on('error', cleanup);
+		return { stream, filename, contentType: 'video/mp4' };
+	} catch (e) {
+		release();
+		throw e;
 	}
 }
