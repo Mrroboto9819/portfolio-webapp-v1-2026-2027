@@ -1,0 +1,14 @@
+# State holds every resource attribute in plaintext — never commit it.
+*.tfstate
+*.tfstate.*
+# Saved plan files are as sensitive as state.
+tfplan
+*.tfplan
+.terraform/
+crash.log
+# Personal overrides (e.g. ssh_ingress_cidr with your home IP).
+*.tfvars
+*.tfvars.json
+# The dependency lock file IS committed — it pins provider versions the same
+# way bun.lock pins packages. (Listed here as a reminder, not ignored.)
+!.terraform.lock.hcl

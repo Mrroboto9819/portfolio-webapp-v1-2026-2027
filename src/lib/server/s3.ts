@@ -29,7 +29,10 @@ export const ALLOWED_TYPES: Record<string, string> = {
 };
 
 export function storageConfigured(): boolean {
-	return Boolean(env.S3_ENDPOINT && env.S3_BUCKET && env.S3_ACCESS_KEY && env.S3_SECRET_KEY);
+	// The bucket is the only universal requirement. Endpoint and static keys
+	// are how the k3s MinIO is reached; on AWS neither exists — the SDK finds
+	// real S3 on its own and the EC2 instance role supplies credentials.
+	return Boolean(env.S3_BUCKET);
 }
 
 let client: S3Client | null = null;
@@ -39,14 +42,26 @@ function s3(): S3Client {
 
 	client = new S3Client({
 		region: env.S3_REGION || 'us-east-1',
-		endpoint: env.S3_ENDPOINT,
-		// MinIO serves buckets as a path, not a subdomain. Real S3 works either
-		// way, so leaving this on keeps one code path for both.
-		forcePathStyle: env.S3_FORCE_PATH_STYLE !== 'false',
-		credentials: {
-			accessKeyId: env.S3_ACCESS_KEY!,
-			secretAccessKey: env.S3_SECRET_KEY!
-		}
+		// Only MinIO needs an endpoint. Left undefined, the SDK targets S3.
+		...(env.S3_ENDPOINT ? { endpoint: env.S3_ENDPOINT } : {}),
+		// MinIO serves buckets as a path, not a subdomain, so path-style
+		// defaults on whenever a custom endpoint is set. Real S3 wants
+		// virtual-hosted addressing, so with no endpoint it defaults off.
+		// S3_FORCE_PATH_STYLE still overrides either default explicitly.
+		forcePathStyle: env.S3_ENDPOINT
+			? env.S3_FORCE_PATH_STYLE !== 'false'
+			: env.S3_FORCE_PATH_STYLE === 'true',
+		// Static keys only when both are provided (MinIO). Omitted, the SDK
+		// walks its default chain — env vars, then the instance role via the
+		// metadata service — which is what keeps long-lived keys off the box.
+		...(env.S3_ACCESS_KEY && env.S3_SECRET_KEY
+			? {
+					credentials: {
+						accessKeyId: env.S3_ACCESS_KEY,
+						secretAccessKey: env.S3_SECRET_KEY
+					}
+				}
+			: {})
 	});
 	return client;
 }
