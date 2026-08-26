@@ -90,6 +90,7 @@
 			<thead>
 				<tr class="border-b border-white/10 text-left">
 					<th class="px-3 py-2.5 {label}">{T('admin.username')}</th>
+					<th class="px-3 py-2.5 {label}">{T('admin.email')}</th>
 					<th class="px-3 py-2.5 {label}">{T('admin.accessLevel')}</th>
 					<th class="px-3 py-2.5 {label}">{T('admin.created')}</th>
 					<th class="px-3 py-2.5 text-right {label}">{T('admin.actions')}</th>
@@ -107,6 +108,9 @@
 									You
 								</span>
 							{/if}
+						</td>
+						<td class="px-3 py-3 font-mono text-xs text-outline">
+							{u.email ?? (u.username.includes('@') ? u.username : '—')}
 						</td>
 						<td class="px-3 py-3">
 							<span
@@ -203,6 +207,18 @@
 				class="{field} font-mono"
 			/>
 		</div>
+		<div class="flex flex-col gap-2">
+			<label class={label} for="new-email">{T('admin.email')}</label>
+			<input
+				id="new-email"
+				name="email"
+				type="email"
+				autocomplete="off"
+				placeholder="optional"
+				class="{field} font-mono"
+			/>
+			<p class="m-0 font-mono text-[11px] leading-snug text-outline">{T('admin.emailHelp')}</p>
+		</div>
 		<p class="m-0 font-mono text-[11px] leading-snug text-outline">
 			Created as a music admin. Promote them afterwards from Access if they need the rest.
 		</p>
@@ -230,6 +246,20 @@
 			class="flex flex-col gap-5"
 		>
 			<input type="hidden" name="id" value={editing.id} />
+
+			<div class="flex flex-col gap-2">
+				<label class={label} for="edit-email">{T('admin.email')}</label>
+				<input
+					id="edit-email"
+					name="email"
+					type="email"
+					autocomplete="off"
+					value={editing.email ?? ''}
+					placeholder="optional"
+					class="{field} font-mono"
+				/>
+				<p class="m-0 font-mono text-[11px] leading-snug text-outline">{T('admin.emailHelp')}</p>
+			</div>
 
 			<label class="flex cursor-pointer items-start justify-between gap-4">
 				<span class="min-w-0">

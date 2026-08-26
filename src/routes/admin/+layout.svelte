@@ -11,7 +11,12 @@
 
 	let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
-	const isLogin = $derived(page.url.pathname === '/admin/login');
+	// Pages reachable while signed OUT render bare — no rail, no transport.
+	// They are how you get in, so surrounding them with the chrome of a session
+	// that does not exist is both wrong and confusing: the rail was showing a
+	// previous user's name behind the recovery form.
+	const BARE_PATHS = ['/admin/login', '/admin/recover'];
+	const isBare = $derived(BARE_PATHS.includes(page.url.pathname));
 	const locale = $derived((data.locale ?? 'en') as Locale);
 	const T = $derived((key: string) => ui(key, locale));
 
@@ -132,8 +137,8 @@
 
 <Toaster />
 
-{#if isLogin}
-	<!-- The login page mounts its own Atmosphere; mounting a second set here
+{#if isBare}
+	<!-- These pages mount their own Atmosphere; mounting a second set here
 	     would double every layer's opacity. -->
 	{@render children()}
 {:else}

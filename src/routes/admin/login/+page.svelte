@@ -2,9 +2,10 @@
 	import { enhance } from '$app/forms';
 	import Atmosphere from '$lib/components/Atmosphere.svelte';
 	import HudPanel from '$lib/components/HudPanel.svelte';
-	import type { ActionData } from './$types';
+	import { ui, type Locale } from '$lib/i18n';
+	import type { ActionData, PageData } from './$types';
 
-	let { form }: { form: ActionData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	// Reveal is per-visit only and never persisted: a remembered "show my
 	// password" would expose it on a shared screen the next time round.
@@ -131,11 +132,19 @@
 			</button>
 		</form>
 
-		<a
-			href="/"
-			class="mt-6 inline-block font-mono text-xs tracking-[0.1em] text-outline uppercase transition-colors hover:text-primary-container"
-		>
-			&larr; Return to site
-		</a>
+		<div class="mt-6 flex flex-wrap items-center justify-between gap-3">
+			<a
+				href="/"
+				class="inline-block font-mono text-xs tracking-[0.1em] text-outline uppercase transition-colors hover:text-primary-container"
+			>
+				&larr; Return to site
+			</a>
+			<a
+				href="/admin/recover"
+				class="inline-block font-mono text-xs tracking-[0.1em] text-outline uppercase transition-colors hover:text-primary-container"
+			>
+				{ui('admin.lostAccess', (data?.locale ?? 'en') as Locale)}
+			</a>
+		</div>
 	</HudPanel>
 </main>

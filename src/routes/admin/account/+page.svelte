@@ -35,6 +35,18 @@
 		{T('admin.account')}
 	</h1>
 
+	{#if data.session?.mustChangePassword}
+		<!-- The rest of the admin is closed to this session until the temporary
+		     password is replaced; say so rather than letting the redirects look
+		     like a broken menu. -->
+		<p
+			class="mb-6 max-w-xl border border-secondary-container/50 bg-secondary-container/10 px-4 py-3 font-mono text-xs leading-relaxed text-secondary-container"
+			role="alert"
+		>
+			{T('admin.tempPasswordNotice')}
+		</p>
+	{/if}
+
 	<div class="flex max-w-xl flex-col gap-8">
 		<!-- identity -->
 		<section class="glass border border-white/10 p-5">

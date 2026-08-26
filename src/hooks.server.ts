@@ -45,6 +45,10 @@ const ALLOWED_HOSTS = new Set([
 ]);
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const LOGIN_PATH = '/admin/login';
+/** Reachable signed OUT — they are how you get signed in. */
+const PUBLIC_ADMIN_PATHS = new Set([LOGIN_PATH, '/admin/recover']);
+/** Where someone holding a temporary password is sent until they replace it. */
+const ACCOUNT_PATH = '/admin/account';
 
 function hostOf(value: string | null): string | null {
 	if (!value) return null;
@@ -156,11 +160,19 @@ const csrfGuard: Handle = async ({ event, resolve }) => {
 const adminGuard: Handle = async ({ event, resolve }) => {
 	const { pathname, search } = event.url;
 
-	if (pathname.startsWith('/admin') && pathname !== LOGIN_PATH) {
+	if (pathname.startsWith('/admin') && !PUBLIC_ADMIN_PATHS.has(pathname)) {
 		const session = event.locals.session;
 		if (!session) {
 			redirect(303, `${LOGIN_PATH}?next=${encodeURIComponent(pathname + search)}`);
 		}
+
+		// Signed in on a temporary password from a recovery email. That password
+		// is sitting in an inbox, so the session is confined to the one screen
+		// that can replace it (and to signing out) until they do.
+		if (session.mustChangePassword && pathname !== ACCOUNT_PATH && pathname !== '/admin/logout') {
+			redirect(303, ACCOUNT_PATH);
+		}
+
 		// A music-only admin who lands on a super-admin screen is sent to their
 		// own home rather than shown a 403: they are legitimately signed in and
 		// most likely followed a stale link or a bookmark.

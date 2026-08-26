@@ -16,6 +16,7 @@ import {
 	createUser,
 	listUsers,
 	removeUser,
+	setEmail,
 	setFlags,
 	setPassword
 } from '$lib/server/users';
@@ -37,8 +38,13 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const username = String(form.get('username') ?? '').trim();
 		const password = String(form.get('password') ?? '');
+		const email = String(form.get('email') ?? '').trim();
 		try {
 			const user = await createUser(username, password);
+			// Separate call rather than a parameter: an address that fails
+			// validation must not lose the account that was just created, and
+			// the user can always add it afterwards.
+			if (email) await setEmail(user.id, email);
 			return { created: user.username };
 		} catch (e) {
 			return fail(400, { message: messageOf(e) });
@@ -76,6 +82,9 @@ export const actions: Actions = {
 		}
 
 		try {
+			// One modal, one save: the address a recovery message goes to is
+			// edited beside the privileges rather than behind a second button.
+			await setEmail(id, String(form.get('email') ?? ''));
 			await setFlags(id, { isAdmin, isSuperAdmin });
 			return { updated: true };
 		} catch (e) {
