@@ -63,7 +63,17 @@ const BRANDS: Record<string, Brand> = {
 	GIT: { color: '#F05032' },
 	INSTAGRAM: { color: '#E4405F' },
 	REDIS: { color: '#FF4438' },
-	NGINX: { color: '#009639' }
+	NGINX: { color: '#009639' },
+
+	// --- production platform (see $lib/stack.ts) ---
+	// AWS's own orange reads well on the dark ground, so no onDark override is
+	// needed for the umbrella mark or EC2. S3's official green is the darker
+	// #569A31 from the service icon; lifted here for the same reason Django is.
+	TERRAFORM: { color: '#844FBA', onDark: '#A47FD0' },
+	AWS: { color: '#FF9900' },
+	'AMAZON EC2': { color: '#FF9900' },
+	'AMAZON S3': { color: '#569A31', onDark: '#7CBF52' },
+	'MONGODB ATLAS': { color: '#47A248' }
 };
 
 /**

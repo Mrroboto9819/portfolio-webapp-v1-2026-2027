@@ -4,26 +4,20 @@
 	import { brandColor } from '$lib/brand';
 	import { content } from '$lib/content.svelte';
 	import { ui } from '$lib/i18n';
+	import { currentStack } from '$lib/stack';
 
 	// The locale comes from the shared content store rather than a prop: the
 	// footer is rendered by three different routes and none of them should have
 	// to remember to thread it down.
 	const locale = $derived(content.locale);
 
-	// What actually runs this site, in the order a request meets it. Each entry
-	// names a mark in static/icons/ and, where the mark has an official brand
-	// colour, $lib/brand.ts supplies it — same treatment as the skills grid, so
-	// the footer does not invent a second visual language for the same logos.
-	const STACK = [
-		{ label: 'SvelteKit', brand: 'SVELTE', src: '/icons/svelte.svg' },
-		{ label: 'TypeScript', brand: 'TYPESCRIPT', src: '/icons/typescript.svg' },
-		{ label: 'Node', brand: 'NODE.JS', src: '/icons/nodedotjs.svg' },
-		{ label: 'MongoDB', brand: 'MONGODB', src: '/icons/mongodb.svg' },
-		{ label: 'Docker', brand: 'DOCKER', src: '/icons/docker.svg' },
-		{ label: 'k3s', brand: 'K3S', src: '/icons/k3s.svg' },
-		{ label: 'GitHub Actions', brand: 'GITHUB ACTIONS', src: '/icons/githubactions.svg' },
-		{ label: 'Linux', brand: 'LINUX', src: '/icons/linux.svg' }
-	];
+	// The stack this deployment actually runs, in the order a request meets it —
+	// k3s on beta, AWS on production, chosen by PUBLIC_DEPLOY_ENV at runtime (see
+	// $lib/stack.ts). Each entry names a mark in static/icons/ and, where the
+	// mark has an official brand colour, $lib/brand.ts supplies it — same
+	// treatment as the skills grid, so the footer does not invent a second
+	// visual language for the same logos.
+	const STACK = currentStack();
 </script>
 
 <footer class="relative z-10 border-t border-white/10 bg-surface-lowest/60">

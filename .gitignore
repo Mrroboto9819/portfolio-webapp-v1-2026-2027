@@ -54,3 +54,8 @@ vite.config.ts.timestamp-*
 # Knowledge graph output — regenerable, and a stale graph in git is worse
 # than no graph. Rebuild with /graphify (or `graphify update` for changes only).
 graphify-out/
+
+# Migration artefacts — the media export pulled off the MinIO PVC and the
+# Mongo dump that goes with it. Large binaries and a copy of live data;
+# both are reproducible from the cluster, so neither belongs in git.
+migration/
