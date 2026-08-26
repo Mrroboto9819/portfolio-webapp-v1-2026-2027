@@ -38,11 +38,10 @@ apt-get install -y caddy
 systemctl enable --now docker
 
 # ---- Caddy -----------------------------------------------------------------
-# Three jobs: terminate TLS (Let's Encrypt, auto-renewed), proxy the app, and
-# map the legacy /cdn/portafolio/ prefix onto the S3 bucket so every media URL
-# already stored in Mongo keeps resolving. handle_path strips the matched
-# prefix — the same thing the Traefik stripPrefix middleware does on k3s — so
-# the bucket name never has to match the old path.
+# Two jobs: terminate TLS (Let's Encrypt, auto-renewed) and proxy the app —
+# INCLUDING /cdn/portafolio/*. The bucket is private and Caddy cannot sign
+# AWS requests, so media flows through the app's own /cdn route, which reads
+# S3 with the instance role. One upstream, one door.
 cat > /etc/caddy/Caddyfile <<'CADDYFILE'
 ${domain} {
 	# PRE-CUTOVER TESTING ONLY: while DNS still points at k3s, Let's Encrypt
@@ -52,13 +51,6 @@ ${domain} {
 	# tls internal
 
 	encode zstd gzip
-
-	# /cdn/portafolio/<key> -> s3://${media_bucket}/<key>
-	handle_path /cdn/portafolio/* {
-		reverse_proxy https://${media_bucket}.s3.${region}.amazonaws.com {
-			header_up Host {upstream_hostport}
-		}
-	}
 
 	handle {
 		reverse_proxy 127.0.0.1:3000
