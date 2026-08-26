@@ -57,17 +57,18 @@
 						</span>
 					{/if}
 				</div>
+				<!-- The full name always shows — a long one wraps into more rows
+				     inside the fixed column instead of truncating, so nothing is
+				     hidden and the layout still cannot shift. -->
 				<span
-					class="mt-3 hidden max-w-full truncate font-mono text-xs tracking-[0.1em] uppercase sm:block"
+					class="mt-3 hidden max-w-full font-mono text-xs leading-relaxed tracking-[0.1em] break-words uppercase sm:block"
 					style="color: {accent}"
-					title={job.name}
 				>
 					{job.name}
 				</span>
 				<span
-					class="min-w-0 truncate font-mono text-sm tracking-[0.1em] uppercase sm:hidden"
+					class="min-w-0 font-mono text-sm tracking-[0.1em] break-words uppercase sm:hidden"
 					style="color: {accent}"
-					title={job.name}
 				>
 					{job.name}
 				</span>
