@@ -400,14 +400,20 @@
 				Cancel
 			</button>
 			<div class="flex-1">
-				<HoldButton
-					label="Hold to delete"
-					confirmLabel="Keep holding…"
-					doneLabel="Deleting…"
-					duration={1400}
-					onconfirm={() =>
-						(document.getElementById('delete-form') as HTMLFormElement)?.requestSubmit()}
-				/>
+				<!-- Keyed on the target row: the footer snippet stays mounted across
+				     open/close cycles, and HoldButton latches `fired` after confirming
+				     (deliberately — it is what blocks a double submit). Re-mounting per
+				     target is what arms it again for the next delete. -->
+				{#key deleting}
+					<HoldButton
+						label="Hold to delete"
+						confirmLabel="Keep holding…"
+						doneLabel="Deleting…"
+						duration={1400}
+						onconfirm={() =>
+							(document.getElementById('delete-form') as HTMLFormElement)?.requestSubmit()}
+					/>
+				{/key}
 			</div>
 		</div>
 	{/snippet}
