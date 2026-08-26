@@ -34,6 +34,18 @@ variable "github_repo" {
   default     = "Mrroboto9819/portfolio-webapp-v1-2026-2027"
 }
 
+variable "github_owner_id" {
+  description = "Immutable numeric ID of the GitHub owner, as it appears in the OIDC sub claim."
+  type        = string
+  default     = "55996295"
+}
+
+variable "github_repo_id" {
+  description = "Immutable numeric ID of the GitHub repository, as it appears in the OIDC sub claim."
+  type        = string
+  default     = "1343039853"
+}
+
 variable "app_image" {
   description = "Container image the instance runs. GHCR requires a lowercase owner, hence the mismatch with github_repo's casing."
   type        = string
