@@ -200,9 +200,11 @@ const adminGuard: Handle = async ({ event, resolve }) => {
  * The write guard only inspects mutating methods, which is right for the
  * content API — those reads ARE the public site. But /api/v1/export returns
  * every collection including drafts and hidden rows in one response, so a
- * plain GET would hand the whole database to anyone who knew the path.
+ * plain GET would hand the whole database to anyone who knew the path. The
+ * media listing is the same shape of leak: it enumerates every stored file,
+ * including images of drafts nobody has published.
  */
-const ADMIN_ONLY_PREFIXES = ['/api/v1/export'];
+const ADMIN_ONLY_PREFIXES = ['/api/v1/export', '/api/v1/media'];
 
 const readGuard: Handle = async ({ event, resolve }) => {
 	const { pathname } = event.url;

@@ -18,7 +18,10 @@
 	let editing = $state<Row | null>(null);
 	let deleting = $state<Row | null>(null);
 	let saving = $state(false);
-	let bodyEl = $state<HTMLTextAreaElement | null>(null);
+	// One editor per language for a translatable markdown field; the toolbar
+	// acts on whichever editor last had focus.
+	let bodyEls = $state<Record<string, HTMLTextAreaElement | null>>({});
+	let mdLocale = $state<string>('en');
 	// Editable, so it must be $state — but the URL is the source of truth. Without
 	// this resync, navigating back (or clearing the search) would leave a stale
 	// term sitting in the box while the table showed different rows.
@@ -90,7 +93,7 @@
 	}
 
 	function surround(before: string, after = before, placeholder = 'text') {
-		const el = bodyEl;
+		const el = bodyEls[mdLocale] ?? bodyEls.en;
 		if (!el) return;
 		const { selectionStart: s, selectionEnd: e, value } = el;
 		const selected = value.slice(s, e) || placeholder;
@@ -113,6 +116,79 @@
 
 	const field =
 		'w-full border border-outline/40 bg-surface-lowest/60 px-3 py-2.5 text-sm text-on-surface outline-none focus:border-primary-container';
+
+	// ---- posts-only tooling: bucket image uploads + JSON import ----
+	// Images go to the bucket FIRST so their /cdn URLs exist to paste into
+	// markdown; a JSON file in the API's own shape creates or updates a post in
+	// one step ("status": "published" in the file = fast publish).
+	let imagesInput = $state<HTMLInputElement | null>(null);
+	let jsonInput = $state<HTMLInputElement | null>(null);
+	let uploadedUrls = $state<{ name: string; url: string }[]>([]);
+	let toolBusy = $state(false);
+
+	async function uploadImages(files: FileList | null) {
+		if (!files?.length) return;
+		toolBusy = true;
+		for (const file of files) {
+			const fd = new FormData();
+			fd.append('file', file);
+			fd.append('folder', 'posts');
+			try {
+				const res = await fetch('/api/v1/uploads', { method: 'POST', body: fd });
+				const out = await res.json();
+				if (!res.ok) throw new Error(out.message ?? `Upload failed (${res.status})`);
+				uploadedUrls = [...uploadedUrls, { name: file.name, url: out.url }];
+			} catch (e) {
+				toast.error(`${file.name}: ${e instanceof Error ? e.message : 'upload failed'}`);
+			}
+		}
+		toolBusy = false;
+		if (imagesInput) imagesInput.value = '';
+	}
+
+	function copyUrl(url: string) {
+		navigator.clipboard?.writeText(url).then(
+			() => toast.success('URL copied'),
+			() => toast.error('Could not copy — select it by hand')
+		);
+	}
+
+	async function importJson(files: FileList | null) {
+		const file = files?.[0];
+		if (!file) return;
+		toolBusy = true;
+		try {
+			const doc = JSON.parse(await file.text());
+			if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+				throw new Error('The file must contain one JSON object.');
+			}
+			if (!doc.title || !doc.body) throw new Error('The JSON needs at least "title" and "body".');
+
+			// An "id" — or a slug that already exists — updates instead of
+			// creating, so re-importing a corrected file is idempotent.
+			let id: string | null = typeof doc.id === 'string' ? doc.id : null;
+			if (!id && typeof doc.slug === 'string') {
+				const listRes = await fetch('/api/v1/posts?all=true');
+				const list = await listRes.json().catch(() => ({ items: [] }));
+				id = (list.items ?? []).find((p: { slug?: string }) => p.slug === doc.slug)?.id ?? null;
+			}
+
+			const { id: _drop, ...payload } = doc;
+			const res = await fetch(id ? `/api/v1/posts/${id}` : '/api/v1/posts', {
+				method: id ? 'PATCH' : 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(payload)
+			});
+			const out = await res.json();
+			if (!res.ok) throw new Error(out.message ?? `Import failed (${res.status})`);
+			toast.success(id ? `Updated "${doc.slug ?? id}"` : `Created "${out.slug ?? out.id}"`);
+			await invalidateAll();
+		} catch (e) {
+			toast.error(e instanceof Error ? e.message : 'Import failed');
+		}
+		toolBusy = false;
+		if (jsonInput) jsonInput.value = '';
+	}
 </script>
 
 <svelte:head>
@@ -133,6 +209,66 @@
 			+ New
 		</button>
 	</div>
+
+	{#if data.entity === 'posts'}
+		<div class="mb-6 flex flex-col gap-3 border border-outline/30 bg-surface-lowest/40 p-4">
+			<div class="flex flex-wrap items-center gap-3">
+				<button
+					type="button"
+					disabled={toolBusy}
+					onclick={() => imagesInput?.click()}
+					class="border border-outline/40 px-4 py-2 font-mono text-xs uppercase hover:border-primary-container hover:text-primary-container disabled:opacity-50"
+				>
+					Upload images
+				</button>
+				<button
+					type="button"
+					disabled={toolBusy}
+					onclick={() => jsonInput?.click()}
+					class="border border-outline/40 px-4 py-2 font-mono text-xs uppercase hover:border-primary-container hover:text-primary-container disabled:opacity-50"
+				>
+					Import JSON
+				</button>
+				{#if toolBusy}<span class="font-mono text-xs text-outline">Working…</span>{/if}
+				<span class="font-mono text-xs text-outline">
+					Images land in the bucket under posts/ — copy the URL into your markdown. JSON in the
+					API's shape creates, or updates when the id or slug already exists.
+				</span>
+			</div>
+			<input
+				bind:this={imagesInput}
+				type="file"
+				accept="image/png,image/jpeg,image/webp,image/avif,image/gif"
+				multiple
+				class="hidden"
+				onchange={(e) => uploadImages(e.currentTarget.files)}
+			/>
+			<input
+				bind:this={jsonInput}
+				type="file"
+				accept="application/json,.json"
+				class="hidden"
+				onchange={(e) => importJson(e.currentTarget.files)}
+			/>
+			{#if uploadedUrls.length}
+				<ul class="m-0 flex list-none flex-col gap-1.5 p-0">
+					{#each uploadedUrls as u (u.url)}
+						<li class="flex min-w-0 items-center gap-2 font-mono text-xs">
+							<span class="max-w-40 truncate text-on-surface-variant">{u.name}</span>
+							<code class="min-w-0 truncate text-primary-container">{u.url}</code>
+							<button
+								type="button"
+								onclick={() => copyUrl(u.url)}
+								class="shrink-0 border border-outline/40 px-2 py-0.5 uppercase hover:border-primary-container hover:text-primary-container"
+							>
+								Copy
+							</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+	{/if}
 
 	{#if form?.message}
 		<p
@@ -262,14 +398,36 @@
 									</a>
 								{/if}
 							</div>
-							<textarea
-								bind:this={bodyEl}
-								id={f.name}
-								name={f.name}
-								rows="16"
-								value={valueFor(editing, f.name, f.type)}
-								class="{field} font-mono leading-relaxed"
-							></textarea>
+							{#if translatable.has(f.name)}
+								<!-- One editor per language, like the plain text fields: the
+								     save action reads name__en / name__es. A single textarea
+								     named `body` here is what used to WIPE bodies on save —
+								     patchFrom never saw the per-locale names it expects. -->
+								{#each LOCALES as loc (loc)}
+									<div class="flex items-start gap-2">
+										<span class="mt-2.5 w-7 shrink-0 font-mono text-xs tracking-[0.1em] text-outline">
+											{LOCALE_LABEL[loc]}
+										</span>
+										<textarea
+											bind:this={bodyEls[loc]}
+											name="{f.name}__{loc}"
+											rows="12"
+											onfocus={() => (mdLocale = loc)}
+											value={localeValue(editing, f.name, loc)}
+											class="{field} flex-1 font-mono leading-relaxed"
+										></textarea>
+									</div>
+								{/each}
+							{:else}
+								<textarea
+									bind:this={bodyEls.en}
+									id={f.name}
+									name={f.name}
+									rows="16"
+									value={valueFor(editing, f.name, f.type)}
+									class="{field} font-mono leading-relaxed"
+								></textarea>
+							{/if}
 						{:else if translatable.has(f.name)}
 							<!-- One input per language. The save action reassembles them
 							     into { en, es }; a blank locale simply falls back. -->

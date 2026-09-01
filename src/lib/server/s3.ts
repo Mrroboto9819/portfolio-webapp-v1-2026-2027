@@ -10,7 +10,9 @@ import {
 	S3Client,
 	PutObjectCommand,
 	DeleteObjectCommand,
-	GetObjectCommand
+	GetObjectCommand,
+	ListObjectsV2Command,
+	CopyObjectCommand
 } from '@aws-sdk/client-s3';
 import { env } from '$env/dynamic/private';
 
@@ -108,10 +110,68 @@ export async function uploadObject(file: File, folder = 'uploads'): Promise<Uplo
 		})
 	);
 
-	// Host-relative, so the same value works on beta, prod and behind a CDN
-	// without rewriting the database.
+	return { url: publicUrlFor(key), key, size: file.size, type: file.type };
+}
+
+/**
+ * The stored URL for a key. Host-relative, so the same value works on beta,
+ * prod and behind a CDN without rewriting the database.
+ */
+export function publicUrlFor(key: string): string {
 	const base = (env.S3_PUBLIC_BASE || `/cdn/${env.S3_BUCKET}`).replace(/\/$/, '');
-	return { url: `${base}/${key}`, key, size: file.size, type: file.type };
+	return `${base}/${key}`;
+}
+
+export type StoredObject = { key: string; url: string; size: number; lastModified: string };
+
+/**
+ * Every object in the bucket (or under one prefix), pagination folded away.
+ *
+ * On AWS this is the one call that needs `s3:ListBucket` on the instance role
+ * — a bucket-level action the role deliberately lacked until the media
+ * manager existed (see infra/terraform/iam.tf). MinIO's static keys have
+ * always been able to list.
+ */
+export async function listObjects(prefix?: string): Promise<StoredObject[]> {
+	const out: StoredObject[] = [];
+	let token: string | undefined;
+	do {
+		const page = await s3().send(
+			new ListObjectsV2Command({
+				Bucket: env.S3_BUCKET,
+				...(prefix ? { Prefix: prefix } : {}),
+				...(token ? { ContinuationToken: token } : {})
+			})
+		);
+		for (const o of page.Contents ?? []) {
+			if (!o.Key) continue;
+			out.push({
+				key: o.Key,
+				url: publicUrlFor(o.Key),
+				size: o.Size ?? 0,
+				lastModified: o.LastModified?.toISOString() ?? ''
+			});
+		}
+		token = page.IsTruncated ? page.NextContinuationToken : undefined;
+	} while (token);
+	return out;
+}
+
+/**
+ * Server-side copy — the first half of a move or rename, since S3 has no
+ * rename. The caller deletes the source only after the copy AND the database
+ * reference rewrite succeed, so a crash mid-move never leaves a broken link.
+ */
+export async function copyObject(fromKey: string, toKey: string): Promise<void> {
+	await s3().send(
+		new CopyObjectCommand({
+			Bucket: env.S3_BUCKET,
+			// The whole source (bucket/key) is one URL-encoded header value.
+			CopySource: encodeURIComponent(`${env.S3_BUCKET}/${fromKey}`),
+			Key: toKey,
+			MetadataDirective: 'COPY'
+		})
+	);
 }
 
 export async function deleteObject(key: string): Promise<void> {

@@ -50,7 +50,7 @@
 
 {#snippet navRows()}
 	{#if isSuper}
-		{#each [{ href: '/admin', label: 'Overview' }, { href: '/admin/data', label: 'Data' }, { href: '/admin/users', label: T('admin.users') }, { href: '/admin/profile', label: 'Site profile' }] as link (link.href)}
+		{#each [{ href: '/admin', label: 'Overview' }, { href: '/admin/data', label: 'Data' }, { href: '/admin/media', label: 'Media' }, { href: '/admin/users', label: T('admin.users') }, { href: '/admin/profile', label: 'Site profile' }] as link (link.href)}
 			<a
 				href={link.href}
 				onclick={() => (navOpen = false)}
