@@ -6,6 +6,7 @@
 // `featured()`) without touching the base.
 
 import type { Document, Filter, WithId } from 'mongodb';
+import { t } from '$lib/i18n';
 import { Repository, type Paged } from './repository';
 import type {
 	BaseDoc,
@@ -155,13 +156,18 @@ class PostRepo extends Repository<Post> {
 	private derive(body: Partial<Post>, existing?: Post): Partial<Post> {
 		const next: Partial<Post> = { ...body };
 
+		// Title and body are Localized { en, es } since the i18n pass, and both
+		// derivations below were written for plain strings — slugify() on the
+		// object produced "[object Object]" and readingMinutes() never ran at
+		// all. t() flattens either shape; deriving from the English copy keeps a
+		// slug from changing when the Spanish translation lands later.
 		if (!next.slug && (next.title || existing?.title)) {
-			next.slug = slugify(next.title ?? existing!.title);
+			next.slug = slugify(t((next.title ?? existing!.title) as never, 'en'));
 		}
 		if (next.slug) next.slug = slugify(next.slug);
 
-		const markdown = next.body ?? existing?.body;
-		if (typeof markdown === 'string') next.readingMinutes = readingMinutes(markdown);
+		const markdown = t((next.body ?? existing?.body) as never, 'en');
+		if (markdown) next.readingMinutes = readingMinutes(markdown);
 
 		// Stamp publishedAt the first time a post goes live, and clear it if it
 		// is pulled back to draft so the index cannot show a stale date.
