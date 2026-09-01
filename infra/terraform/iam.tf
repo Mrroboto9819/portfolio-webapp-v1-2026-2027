@@ -28,8 +28,7 @@ resource "aws_iam_role" "ec2" {
   assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
 }
 
-# Exactly the three verbs s3.ts uses, on exactly one bucket. It never lists
-# the bucket, so no s3:ListBucket.
+# Exactly the verbs s3.ts uses, on exactly one bucket.
 data "aws_iam_policy_document" "media_rw" {
   statement {
     sid = "MediaObjects"
@@ -39,6 +38,17 @@ data "aws_iam_policy_document" "media_rw" {
       "s3:DeleteObject",
     ]
     resources = ["${aws_s3_bucket.media.arn}/*"]
+  }
+
+  # The admin media manager (/admin/media) enumerates the bucket to show
+  # albums and live counts, and its move operation checks the destination is
+  # free before copying. List is a bucket-level action, so it names the
+  # bucket itself, not /*. Before the manager existed this grant deliberately
+  # did not — nothing listed, so nothing was allowed to.
+  statement {
+    sid       = "MediaList"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.media.arn]
   }
 }
 
