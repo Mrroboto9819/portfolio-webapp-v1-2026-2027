@@ -143,7 +143,15 @@
 							/>
 						{/if}
 						<div class="flex items-center gap-3 font-mono text-xs text-outline">
-							<span>{fmt(post.publishedAt)}</span>
+							{#if post.status !== 'published'}
+								<!-- Only ever present for a signed-in super-admin: the server
+								     never hands drafts to anyone else. -->
+								<span class="border border-secondary/60 px-1.5 py-0.5 font-bold text-secondary">
+									DRAFT
+								</span>
+							{:else}
+								<span>{fmt(post.publishedAt)}</span>
+							{/if}
 							{#if post.readingMinutes}
 								<span class="text-tertiary-container">{post.readingMinutes} MIN</span>
 							{/if}

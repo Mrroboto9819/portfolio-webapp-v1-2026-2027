@@ -1,16 +1,32 @@
 import type { PageServerLoad } from './$types';
 import { posts, social, songs } from '$lib/server/repositories';
+import { isSuper } from '$lib/server/permissions';
 import { TRANSLATABLE, localizeRecord } from '$lib/i18n';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
-	// Only published posts, newest first — drafts never leave the admin.
+	// Published posts, newest first — except for a signed-in SUPER-ADMIN, who
+	// also sees drafts, pinned on top and badged, so upcoming posts can be
+	// checked in their real place in the index. Anyone else gets exactly the
+	// public set: the flag comes from the server session, never the client.
 	// Social and songs come along so the shared nav and drawer behave the same
 	// here as on the landing rather than rendering a stripped-down version.
+	const adminView = isSuper(locals.session);
 	const [postList, socialList, songList] = await Promise.all([
-		posts.published(),
+		adminView ? posts.list({ activeOnly: true }) : posts.published(),
 		social.list({ activeOnly: true }),
 		songs.list({ activeOnly: true })
 	]);
+
+	if (adminView) {
+		// Drafts first (they are what the admin came to check), then the same
+		// newest-first order the public sees.
+		postList.sort((a, b) => {
+			const aPub = a.status === 'published' ? 1 : 0;
+			const bPub = b.status === 'published' ? 1 : 0;
+			if (aPub !== bPub) return aPub - bPub;
+			return (b.publishedAt ?? '').localeCompare(a.publishedAt ?? '');
+		});
+	}
 
 	// Posts carry { en, es } on title, excerpt and body. Resolve them here, or
 	// the card renders the object itself as [object Object].
